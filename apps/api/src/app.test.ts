@@ -113,6 +113,13 @@ describe("GET /.well-known/x402", () => {
   });
 });
 
+describe("GET /.well-known/x402 authorship", () => {
+  it("names the wallet that writes Arkiv records", async () => {
+    const response = await app([], { arkivWriter: "0xwriter" }).request("/.well-known/x402");
+    expect(await (response.json() as Promise<any>)).toMatchObject({ arkiv: { writer: "0xwriter" } });
+  });
+});
+
 describe("GET /v1/assets", () => {
   it("lists assets and the venues that support each", async () => {
     const response = await app([]).request("/v1/assets");

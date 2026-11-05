@@ -24,6 +24,8 @@ const getReceipt: GetReceipt = async (chainId, hash) => {
   return reader.getTransactionReceipt({ hash: hash as Hash }).catch(() => null);
 };
 
+const arkiv = connectArkiv({ privateKey: config.arkivPrivateKey, accessKey: config.arkivAccessKey });
+
 const app = createApp({
   venues: [
     createUniswapVenue({ apiKey: config.uniswapApiKey, getReceipt }),
@@ -36,8 +38,9 @@ const app = createApp({
     usdcTokenId: config.usdcTokenId,
   }),
   audit: createHcsAudit(connectHcs(config.hederaOperatorId, config.hederaOperatorKey, config.hcsTopicId)),
-  publisher: createArkivPublisher(connectArkiv({ privateKey: config.arkivPrivateKey, accessKey: config.arkivAccessKey })),
+  publisher: createArkivPublisher(arkiv),
   payTo: config.payToAccount,
+  arkivWriter: arkiv.writer,
 });
 
 serve({ fetch: app.fetch, port: config.port }, ({ port }) => {

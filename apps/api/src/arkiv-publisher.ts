@@ -1,7 +1,8 @@
 import { createPublicClient, createWalletClient, ExpirationTime } from "@arkiv-network/sdk";
 import { rabdi } from "@arkiv-network/sdk/chains";
 import { and, desc, eq } from "@arkiv-network/sdk/query";
-import { bytes, defineSchema, str, u64 } from "@arkiv-network/sdk/schema";
+import { u64 } from "@arkiv-network/sdk/schema";
+import { QuoteSchema } from "@crossfare/core/arkiv-schema";
 import { http, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { PublicQuote, QuoteOutcome, QuotePublisher } from "./publisher.ts";
@@ -12,23 +13,6 @@ const QUOTE_TYPE = "quote";
 const EXPIRY_GRACE_SECONDS = 120;
 const COMPLETED_RETENTION_SECONDS = 7 * 24 * 3600;
 const QUERY_LIMIT = 50;
-
-export const QuoteSchema = defineSchema("crossfare-quote", {
-  project: str().indexed(),
-  type: str().indexed(),
-  quoteId: str().indexed(),
-  requestId: str().indexed(),
-  venue: str().indexed(),
-  fromAsset: str().indexed(),
-  toAsset: str().indexed(),
-  payer: str().indexed(),
-  status: str().indexed(),
-  createdAt: u64().indexed(),
-  validUntil: u64().indexed(),
-  payload: bytes(),
-  amountReceived: str().optional(),
-  txHashes: str().optional(),
-});
 
 export interface QuoteAttributes {
   project: string;

@@ -42,6 +42,8 @@ export interface AppDeps {
   audit: AuditLog;
   publisher: QuotePublisher;
   payTo: string;
+  /** The wallet that owns Crossfare's Arkiv records, so readers can check authorship. */
+  arkivWriter?: string;
   now?: () => Date;
   newId?: (prefix: string) => string;
   /** How long a quote response waits for Arkiv before flagging the write as pending. */
@@ -156,6 +158,7 @@ export function createApp(deps: AppDeps): Hono {
       network: PAYMENT_NETWORK,
       asset: "USDC",
       payTo: deps.payTo,
+      ...(deps.arkivWriter ? { arkiv: { writer: deps.arkivWriter } } : {}),
       endpoints: [QUOTE_ENDPOINT, SWAP_ENDPOINT].map((endpoint) => {
         const [method, path] = endpoint.key.split(" ");
         return { method, path, price: endpoint.priceUsd, description: endpoint.description };

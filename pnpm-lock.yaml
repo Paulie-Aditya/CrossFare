@@ -23,6 +23,9 @@ importers:
       '@arkiv-network/sdk':
         specifier: ^1.0.1
         version: 1.0.1(typescript@7.0.2)(viem@2.57.16(typescript@7.0.2)(zod@4.6.7))
+      '@crossfare/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@hiero-ledger/sdk':
         specifier: ^2.90.1
         version: 2.90.1
@@ -69,7 +72,14 @@ importers:
         specifier: ^2.57.16
         version: 2.57.16(typescript@7.0.2)(zod@4.6.7)
 
-  packages/core: {}
+  packages/core:
+    dependencies:
+      '@arkiv-network/sdk':
+        specifier: ^1.0.1
+        version: 1.0.1(typescript@7.0.2)(viem@2.57.16(typescript@7.0.2)(zod@4.6.7))
+      viem:
+        specifier: ^2.57.16
+        version: 2.57.16(typescript@7.0.2)(zod@4.6.7)
 
 packages:
 
