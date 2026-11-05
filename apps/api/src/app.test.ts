@@ -1,0 +1,249 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { VenueError, type Route, type Venue } from "@crossfare/core";
+import { createApp, type AppDeps } from "./app.ts";
+import type { AuditLog, PaymentGateway } from "./payment.ts";
+import type { QuotePublisher } from "./publisher.ts";
+import { createStore, type Store } from "./store.ts";
+
+const AGENT = "0xC9bebBA9f481b12cE6f3EA54c4B182c9636ec421";
+const NOW = new Date("2026-11-06T10:00:00.000Z");
+const PAID = { "payment-signature": "signed-payment" };
+
+function route(venue: string, minAmountOut: string, overrides: Partial<Route> = {}): Route {
+  return {
+    venue,
+    from: "base:usdc",
+    to: "base:eth",
+    amountIn: "2000000",
+    amountOut: minAmountOut,
+    minAmountOut,
+    fees: { networkUsd: "0.01" },
+    etaSeconds: 30,
+    validUntil: "2026-11-06T10:01:00.000Z",
+    venueData: { secret: "venue-state" },
+    ...overrides,
+  };
+}
+
+function fakeVenue(name: string, routes: Route[] = []): Venue & { quote: ReturnType<typeof vi.fn>; prepare: ReturnType<typeof vi.fn> } {
+  return {
+    name,
+    quote: vi.fn(async () => routes),
+    prepare: vi.fn(async () => ({
+      transactions: [{ kind: "swap", chainId: 8453, to: "0xrouter", data: "0xswap", value: "0x0" }],
+    })),
+  } as never;
+}
+
+const gateway: PaymentGateway = {
+  paymentRequired: async () => ({ body: { x402Version: 2 }, headers: {} }),
+  verify: async () => ({ valid: true, payer: "0.0.51234" }),
+  settle: async () => ({ success: true, transactionId: "0.0.1@1.1", payer: "0.0.51234" }),
+};
+
+let store: Store;
+let publisher: { [K in keyof QuotePublisher]: ReturnType<typeof vi.fn> };
+let settle: ReturnType<typeof vi.fn>;
+let currentTime: Date;
+
+beforeEach(() => {
+  store = createStore(":memory:");
+  currentTime = NOW;
+  publisher = {
+    publishQuote: vi.fn(async (quote: { quoteId: string }) => `0xentity-${quote.quoteId}`),
+    updateQuote: vi.fn(async () => {}),
+    quotesByPayer: vi.fn(async () => [{ quoteId: "q_x" }]),
+  };
+  settle = vi.fn(gateway.settle);
+});
+
+function app(venues: Venue[], overrides: Partial<AppDeps> = {}) {
+  let counter = 0;
+  return createApp({
+    venues,
+    store,
+    gateway: { ...gateway, settle } as PaymentGateway,
+    audit: { log: async () => {} } as AuditLog,
+    publisher: publisher as unknown as QuotePublisher,
+    payTo: "0.0.999",
+    now: () => currentTime,
+    newId: (prefix) => `${prefix}_${++counter}`,
+    publishTimeoutMs: 50,
+    onError: () => {},
+    ...overrides,
+  });
+}
+
+function postQuote(target: ReturnType<typeof app>, body: unknown = quoteBody, headers: Record<string, string> = PAID) {
+  return target.request("/v1/quote", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
+const quoteBody = {
+  from: { asset: "base:usdc", amount: "2", address: AGENT },
+  to: { asset: "base:eth", address: AGENT },
+  mode: "exact_in",
+  slippageBps: 50,
+  refundAddress: AGENT,
+};
+
+describe("GET /.well-known/x402", () => {
+  it("lists paid endpoints, prices, network, asset and chains for free", async () => {
+    const response = await app([]).request("/.well-known/x402");
+    expect(response.status).toBe(200);
+    const body = await (response.json() as Promise<any>);
+    expect(body).toMatchObject({
+      network: "hedera:testnet",
+      asset: "USDC",
+      payTo: "0.0.999",
+      endpoints: expect.arrayContaining([
+        expect.objectContaining({ method: "POST", path: "/v1/quote", price: "0.01" }),
+        expect.objectContaining({ method: "POST", path: "/v1/swap", price: "0.05" }),
+      ]),
+    });
+    expect(body.chains).toEqual(expect.arrayContaining(["base", "btc"]));
+  });
+});
+
+describe("GET /v1/assets", () => {
+  it("lists assets and the venues that support each", async () => {
+    const response = await app([]).request("/v1/assets");
+    const { assets } = await (response.json() as Promise<any>);
+    expect(assets).toEqual(
+      expect.arrayContaining([
+        { id: "base:usdc", chain: "base", symbol: "usdc", decimals: 6, venues: ["uniswap", "swapkit"] },
+        { id: "btc:btc", chain: "btc", symbol: "btc", decimals: 8, venues: ["swapkit"] },
+      ]),
+    );
+  });
+});
+
+describe("POST /v1/quote", () => {
+  it("answers 402 without payment and asks no venue", async () => {
+    const venue = fakeVenue("uniswap", [route("uniswap", "100")]);
+    const response = await postQuote(app([venue]), quoteBody, {});
+    expect(response.status).toBe(402);
+    expect(venue.quote).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed request before asking for payment", async () => {
+    const response = await postQuote(app([]), { from: { asset: "base:usdc" } }, {});
+    expect(response.status).toBe(400);
+  });
+
+  it.each([
+    ["an unknown asset", { to: { asset: "base:doge", address: AGENT } }],
+    ["a non-positive amount", { from: { ...quoteBody.from, amount: "0" } }],
+    ["slippage over 100%", { slippageBps: 10_001 }],
+  ])("rejects %s", async (_label, change) => {
+    const response = await postQuote(app([]), { ...quoteBody, ...change }, {});
+    expect([400, 422]).toContain(response.status);
+  });
+
+  it("returns routes from all venues, best minimum first, in human units", async () => {
+    const venues = [
+      fakeVenue("swapkit", [route("swapkit", "1000000000000000", { provider: "chainflip" })]),
+      fakeVenue("uniswap", [route("uniswap", "2000000000000000")]),
+    ];
+    const response = await postQuote(app(venues));
+    expect(response.status).toBe(200);
+    const body = await (response.json() as Promise<any>);
+    expect(body.routes.map((r: Route) => r.venue)).toEqual(["uniswap", "swapkit"]);
+    expect(body.routes[0]).toMatchObject({
+      venue: "uniswap",
+      amountOut: "0.002",
+      minAmountOut: "0.002",
+      etaSeconds: 30,
+    });
+    expect(body.routes[1].provider).toBe("chainflip");
+    expect(body.requestId).toBeTruthy();
+    expect(body.payment.transactionId).toBe("0.0.1@1.1");
+  });
+
+  it("never exposes venue state to the caller", async () => {
+    const response = await postQuote(app([fakeVenue("uniswap", [route("uniswap", "100")])]));
+    expect(await response.text()).not.toContain("venue-state");
+  });
+
+  it("publishes each route to Arkiv and returns its entity key", async () => {
+    const response = await postQuote(app([fakeVenue("uniswap", [route("uniswap", "100")])]));
+    const { routes } = await (response.json() as Promise<any>);
+    expect(routes[0].arkiv).toEqual({ entityKey: `0xentity-${routes[0].quoteId}`, pending: false });
+    expect(publisher.publishQuote).toHaveBeenCalledTimes(1);
+  });
+
+  it("publishes no refund address, sender address or venue state", async () => {
+    await postQuote(app([fakeVenue("uniswap", [route("uniswap", "100")])]));
+    const published = JSON.stringify(publisher.publishQuote.mock.calls[0]![0]);
+    expect(published).not.toContain(AGENT);
+    expect(published).not.toContain("venue-state");
+  });
+
+  it("publishes the PRD's attributes", async () => {
+    await postQuote(app([fakeVenue("uniswap", [route("uniswap", "100")])]));
+    expect(publisher.publishQuote.mock.calls[0]![0]).toMatchObject({
+      venue: "uniswap",
+      fromAsset: "base:usdc",
+      toAsset: "base:eth",
+      payer: "0.0.51234",
+      status: "quoted",
+      createdAt: Math.floor(NOW.getTime() / 1000),
+      validUntil: Math.floor(new Date("2026-11-06T10:01:00.000Z").getTime() / 1000),
+    });
+  });
+
+  it("flags a slow Arkiv write as pending instead of blocking, then records the key", async () => {
+    let finish!: (key: string) => void;
+    publisher.publishQuote!.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    const response = await postQuote(app([fakeVenue("uniswap", [route("uniswap", "100")])]));
+    const { routes } = await (response.json() as Promise<any>);
+    expect(routes[0].arkiv).toEqual({ entityKey: null, pending: true });
+    finish("0xlate");
+    await vi.waitFor(() => expect(store.getQuote(routes[0].quoteId)?.entityKey).toBe("0xlate"));
+  });
+
+  it("still answers when an Arkiv write fails", async () => {
+    publisher.publishQuote!.mockRejectedValue(new Error("arkiv down"));
+    const response = await postQuote(app([fakeVenue("uniswap", [route("uniswap", "100")])]));
+    expect(response.status).toBe(200);
+    expect((await (response.json() as Promise<any>)).routes[0].arkiv).toEqual({ entityKey: null, pending: true });
+  });
+
+  it("answers 422 and does not charge when no venue supports the pair", async () => {
+    const response = await postQuote(app([fakeVenue("uniswap", [])]));
+    expect(response.status).toBe(422);
+    expect(settle).not.toHaveBeenCalled();
+  });
+
+  it("answers 502 and does not charge when every venue fails", async () => {
+    const venue = fakeVenue("uniswap");
+    venue.quote.mockRejectedValue(new VenueError("uniswap", 500, "boom"));
+    const response = await postQuote(app([venue]));
+    expect(response.status).toBe(502);
+    expect(settle).not.toHaveBeenCalled();
+  });
+
+  it("returns the routes that exist when one venue fails", async () => {
+    const broken = fakeVenue("swapkit");
+    broken.quote.mockRejectedValue(new VenueError("swapkit", 500, "boom"));
+    const response = await postQuote(app([broken, fakeVenue("uniswap", [route("uniswap", "100")])]));
+    expect(response.status).toBe(200);
+    expect((await (response.json() as Promise<any>)).routes).toHaveLength(1);
+  });
+});
+
+describe("GET /v1/quotes", () => {
+  it("reads a payer's quotes from Arkiv", async () => {
+    const response = await app([]).request("/v1/quotes?payer=0.0.51234");
+    expect(response.status).toBe(200);
+    expect(await (response.json() as Promise<any>)).toEqual({ quotes: [{ quoteId: "q_x" }] });
+    expect(publisher.quotesByPayer).toHaveBeenCalledWith("0.0.51234");
+  });
+
+  it("requires a payer", async () => {
+    expect((await app([]).request("/v1/quotes")).status).toBe(400);
+  });
+});
