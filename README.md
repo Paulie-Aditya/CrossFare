@@ -4,7 +4,7 @@ An open-source cross-chain swap API that AI agents pay for per call. An agent ne
 
 Built at ETHGlobal Mumbai, Classic track.
 
-> **Status:** in active development. The API and reference agent are covered by tests against mocked services. They have not yet completed a live run, so this README has no transaction links yet.
+> **Status:** in active development. The API, agent and UI are covered by tests against mocked services. They have not yet completed a live run, so this README has no live URL or transaction links yet.
 
 ## How it works
 
@@ -51,9 +51,10 @@ sequenceDiagram
 | `POST /v1/swap` | 0.05 USDC | Prepare one quote for execution |
 | `POST /v1/swaps/:id/tx` | Free | Report the broadcast transaction hash |
 | `GET /v1/swaps/:id` | Free | Swap status |
-| `GET /v1/quotes?payer=` | Free | A payer's quotes, read from Arkiv |
+| `GET /v1/quotes` | Free | Recent quotes, or one payer's with `?payer=`, read from Arkiv |
+| `POST /demo/quote`, `POST /demo/swap` | Free, capped | The same paid calls, with the fee paid by a testnet account so visitors to the UI need no Hedera wallet |
 
-Prices are placeholders, settled in testnet USDC. Payments and Arkiv use testnets. Swaps run on mainnet because Uniswap and SwapKit need real liquidity.
+Prices are placeholders, settled in testnet USDC. Payments and Arkiv use testnets. Swaps run on mainnet because Uniswap and SwapKit need real liquidity. Sender and recipient addresses are screened through SwapKit when a swap is requested.
 
 ## Repository
 
@@ -62,6 +63,7 @@ Prices are placeholders, settled in testnet USDC. Payments and Arkiv use testnet
 | `packages/core` | Asset registry, route ranking, venue adapters |
 | `apps/api` | Hono service, payment guard, x402 gateway, Arkiv publisher, HCS audit log |
 | `apps/agent` | Reference agent and spending controls |
+| `apps/web` | Swap screen and public quote record |
 | `scripts` | Setup and read-only checks |
 | `arkiv/` | Arkiv prize documents |
 
@@ -93,9 +95,22 @@ You need:
 - an Arkiv access key and a wallet funded from the faucet
 - for live swaps, an EVM wallet on Base with a small balance
 
+With `AGENT_HEDERA_ACCOUNT` set, the UI at `http://localhost:8787` works once the web app is built with `pnpm --filter @crossfare/web build`.
+
+To work on the UI without any keys, run a fake API that spends nothing, then the dev server:
+
+```sh
+node apps/api/src/dev-mock.ts
+pnpm --filter @crossfare/web dev
+```
+
+## Deploy
+
+The `Dockerfile` builds one service that serves the UI and API from a single URL. On Render, create a Blueprint from this repo using `render.yaml`, then fill in the secrets in the dashboard. SQLite needs a persistent disk at `/data`.
+
 ## Built with
 
-Open-source libraries, used as published: [Hono](https://hono.dev), [`@x402/core`, `@x402/hedera`, `@x402/fetch`](https://github.com/x402-foundation/x402), [`@hiero-ledger/sdk`](https://github.com/hiero-ledger/hiero-sdk-js), [`@arkiv-network/sdk`](https://hub.arkiv.network), [viem](https://viem.sh) and [Vitest](https://vitest.dev). No starter kit was used. All project code was written during the hackathon.
+Open-source libraries, used as published: [Hono](https://hono.dev), [`@x402/core`, `@x402/hedera`, `@x402/fetch`](https://github.com/x402-foundation/x402), [`@hiero-ledger/sdk`](https://github.com/hiero-ledger/hiero-sdk-js), [`@arkiv-network/sdk`](https://hub.arkiv.network), [viem](https://viem.sh), [React](https://react.dev), [Vite](https://vite.dev), [wagmi](https://wagmi.sh) and [Vitest](https://vitest.dev). No starter kit was used. All project code was written during the hackathon.
 
 ## AI use
 
