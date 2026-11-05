@@ -1,0 +1,342 @@
+:root {
+  --enamel: #123c96;
+  --enamel-deep: #0c2a6e;
+  --enamel-rule: #3a62b8;
+  --signal: #f5c518;
+  --paper: #dcebe2;
+  --paper-rule: #9fb9ab;
+  --ink: #0b1a3a;
+  --sky: #c9d8f5;
+  --uniswap: #c81e6a;
+  --swapkit: #00766b;
+  --stamp: #b3261e;
+  --display: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+  --body: "Barlow", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--enamel);
+  color: #fff;
+  font: 400 1rem/1.5 var(--body);
+  font-variant-numeric: tabular-nums;
+}
+
+a { color: inherit; text-underline-offset: 0.18em; }
+
+button, input, select { font: inherit; }
+
+:focus-visible { outline: 3px solid var(--signal); outline-offset: 2px; }
+
+.ticket :focus-visible, .receipt :focus-visible { outline-color: var(--stamp); }
+
+.masthead {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  padding: 1rem clamp(1rem, 4vw, 3rem);
+  border-bottom: 4px solid var(--signal);
+  background: var(--enamel-deep);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font: 700 1.5rem/1 var(--display);
+}
+
+nav { display: flex; gap: 0.25rem; margin-right: auto; }
+
+nav button {
+  padding: 0.35rem 0.75rem;
+  border: 0;
+  background: none;
+  color: var(--sky);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+nav button:hover { color: #fff; }
+
+nav button[aria-current="page"] { color: #fff; box-shadow: inset 0 -3px 0 #fff; }
+
+.wallet-slot { position: relative; }
+
+.wallet {
+  padding: 0.45rem 0.9rem;
+  border: 2px solid #fff;
+  border-radius: 3px;
+  background: none;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wallet:hover:not(:disabled) { background: #fff; color: var(--enamel-deep); }
+
+.wallet-error {
+  position: absolute;
+  right: 0;
+  z-index: 2;
+  width: 16rem;
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 19rem;
+  gap: clamp(2rem, 5vw, 5rem);
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 5vw, 3.5rem) clamp(1rem, 4vw, 3rem) 4rem;
+}
+
+h1 {
+  max-width: 17ch;
+  margin: 0;
+  font: 700 clamp(2.5rem, 6vw, 4.25rem)/1 var(--display);
+  letter-spacing: -0.01em;
+}
+
+.lede { max-width: 56ch; margin: 1rem 0 2rem; color: var(--sky); font-size: 1.1rem; }
+
+.gate {
+  display: grid;
+  grid-template-columns: 7rem 1fr 1fr 6rem;
+  gap: 1rem;
+  padding: 1.25rem;
+  border-radius: 4px;
+  background: var(--enamel-deep);
+}
+
+.field { display: grid; gap: 0.35rem; min-width: 0; }
+
+.field span { color: var(--sky); font-size: 0.9rem; font-weight: 500; }
+
+.field input, .field select {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 0;
+  border-bottom: 3px solid var(--signal);
+  border-radius: 2px 2px 0 0;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.field-wide { grid-column: 1 / -1; }
+
+.gate-action {
+  grid-column: 1 / -1;
+  padding: 0.8rem;
+  border: 0;
+  border-radius: 3px;
+  background: var(--signal);
+  color: var(--ink);
+  font: 700 1.25rem/1.2 var(--display);
+  cursor: pointer;
+}
+
+.gate-action:hover:not(:disabled) { background: #ffd83d; }
+
+button:disabled { cursor: not-allowed; opacity: 0.6; }
+
+.gate-note { grid-column: 1 / -1; margin: 0; color: var(--sky); font-size: 0.9rem; }
+
+.message {
+  margin: 1.25rem 0 0;
+  padding: 0.75rem 1rem;
+  border-left: 5px solid var(--signal);
+  background: var(--enamel-deep);
+}
+
+.message-error { border-left-color: var(--stamp); background: var(--paper); color: var(--ink); }
+
+.tickets { display: grid; gap: 1rem; margin-top: 1.5rem; }
+
+/* Notched like a torn paper ticket, with the perforation between body and stub. */
+.ticket {
+  --band: var(--enamel);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 13rem;
+  border-left: 10px solid var(--band);
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-mask: radial-gradient(circle 11px at calc(100% - 13rem) 0, #0000 98%, #000) top, radial-gradient(circle 11px at calc(100% - 13rem) 100%, #0000 98%, #000) bottom;
+  -webkit-mask-size: 100% 51%;
+  -webkit-mask-repeat: no-repeat;
+  mask: radial-gradient(circle 11px at calc(100% - 13rem) 0, #0000 98%, #000) top, radial-gradient(circle 11px at calc(100% - 13rem) 100%, #0000 98%, #000) bottom;
+  mask-size: 100% 51%;
+  mask-repeat: no-repeat;
+}
+
+.ticket-uniswap { --band: var(--uniswap); }
+.ticket-swapkit { --band: var(--swapkit); }
+
+.ticket-main { position: relative; padding: 1rem 1.25rem; }
+
+.ticket-venue { margin: 0; font-weight: 600; }
+
+.ticket-venue span { font-weight: 400; }
+
+.ticket-amount {
+  margin: 0.15rem 0 0;
+  font: 700 clamp(1.75rem, 4vw, 2.5rem)/1.1 var(--display);
+  overflow-wrap: anywhere;
+}
+
+.ticket-amount span { font-weight: 500; }
+
+.ticket-note { margin: 0.2rem 0 0; font-size: 0.9rem; }
+
+.ticket-best {
+  display: inline-block;
+  margin: 0.6rem 0 0;
+  padding: 0.1rem 0.5rem;
+  border: 2px solid var(--stamp);
+  border-radius: 3px;
+  color: var(--stamp);
+  font-weight: 600;
+  font-size: 0.9rem;
+  transform: rotate(-1.5deg);
+}
+
+.ticket-stub {
+  display: grid;
+  align-content: space-between;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-left: 2px dashed var(--paper-rule);
+}
+
+.ticket-clock { margin: 0; font: 700 1.75rem/1 var(--display); }
+
+.ticket-clock.is-expired { color: var(--stamp); font-size: 1.25rem; }
+
+.ticket-link { margin: 0; font-size: 0.9rem; }
+
+.ticket-action, .receipt-action {
+  padding: 0.5rem 0.6rem;
+  border: 0;
+  border-radius: 3px;
+  background: var(--ink);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ticket-action:hover:not(:disabled), .receipt-action:hover { background: var(--enamel); }
+
+.receipt, .deposit { margin-top: 1.5rem; padding: 1.25rem; background: var(--paper); color: var(--ink); }
+
+.receipt h2, .deposit h2 { margin: 0 0 0.75rem; font: 700 1.9rem/1.1 var(--display); }
+
+.deposit p { margin: 0.4rem 0; }
+
+.deposit-address { overflow-wrap: anywhere; font-weight: 600; }
+
+.receipt dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin: 0; }
+
+.receipt dt { font-size: 0.9rem; }
+
+.receipt dd { margin: 0; font: 700 1.3rem/1.2 var(--display); overflow-wrap: anywhere; }
+
+.receipt-action { margin-top: 1rem; }
+
+/* The memorable part: the swap drawn as a transit line with stations. */
+.column-line { align-self: start; position: sticky; top: 1.5rem; }
+
+.line { margin: 0; padding: 0; list-style: none; }
+
+.station {
+  --dot: var(--enamel);
+  --track: var(--enamel-rule);
+  position: relative;
+  display: grid;
+  gap: 0.1rem;
+  padding: 0 0 1.75rem 2.75rem;
+  color: var(--sky);
+}
+
+.station::before {
+  content: "";
+  position: absolute;
+  top: 0.4rem;
+  bottom: -0.4rem;
+  left: 0.72rem;
+  width: 7px;
+  background: var(--track);
+}
+
+.station:last-child::before { display: none; }
+
+.station::after {
+  content: "";
+  position: absolute;
+  top: 0.2rem;
+  left: 0.2rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 4px solid #fff;
+  border-radius: 50%;
+  background: var(--dot);
+}
+
+.station-name { color: #fff; font: 600 1.2rem/1.3 var(--display); }
+
+.station-detail { font-size: 0.9rem; }
+
+.station a { color: #fff; font-size: 0.9rem; font-weight: 500; overflow-wrap: anywhere; }
+
+.station.is-upcoming .station-name { color: var(--sky); }
+
+.station.is-done { --dot: var(--signal); --track: var(--signal); }
+
+.station.is-current { --dot: #fff; }
+
+.station.is-current::after { box-shadow: 0 0 0 0 rgb(245 197 24 / 0.8); animation: arriving 1.6s ease-out infinite; }
+
+.station.is-failed { --dot: var(--stamp); }
+
+@keyframes arriving {
+  to { box-shadow: 0 0 0 14px rgb(245 197 24 / 0); }
+}
+
+.record { max-width: 76rem; margin: 0 auto; padding: clamp(1.5rem, 5vw, 3.5rem) clamp(1rem, 4vw, 3rem) 4rem; }
+
+.record-empty { padding: 1.25rem; background: var(--enamel-deep); }
+
+.record-scroll { overflow-x: auto; background: var(--paper); color: var(--ink); }
+
+table { width: 100%; border-collapse: collapse; }
+
+th, td { padding: 0.7rem 1rem; border-bottom: 1px solid var(--paper-rule); text-align: left; white-space: nowrap; }
+
+th { font: 600 1rem/1.2 var(--display); }
+
+.numeric { text-align: right; }
+
+@media (max-width: 860px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .column-line { position: static; }
+  .masthead { flex-wrap: wrap; gap: 0.75rem 1rem; }
+}
+
+@media (max-width: 560px) {
+  .gate { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .ticket { grid-template-columns: minmax(0, 1fr); -webkit-mask: none; mask: none; }
+  .ticket-stub { border-left: 0; border-top: 2px dashed var(--paper-rule); }
+  .receipt dl { grid-template-columns: minmax(0, 1fr); }
+  .wallet-slot, .masthead > .wallet { margin-left: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .station.is-current::after { animation: none; box-shadow: 0 0 0 4px var(--signal); }
+}
