@@ -25,6 +25,7 @@ function clients(overrides: Partial<ArkivClients> = {}) {
     patch: vi.fn(async () => {}),
     extend: vi.fn(async () => {}),
     queryByPayer: fetchRows,
+    queryRecent: vi.fn(async () => [{ quoteId: "q_recent" }]),
     ...overrides,
   };
   return base as ArkivClients & { [K in keyof ArkivClients]: ReturnType<typeof vi.fn> };
@@ -99,6 +100,12 @@ describe("arkiv publisher", () => {
     await publisher(c).updateQuote("0xkey", { status: "executing" });
     expect(c.patch).toHaveBeenCalledWith("0xkey", { status: "executing" });
     expect(c.extend).not.toHaveBeenCalled();
+  });
+
+  it("reads recent quotes from Crossfare's own wallet only", async () => {
+    const c = clients();
+    expect(await publisher(c).recentQuotes()).toEqual([{ quoteId: "q_recent" }]);
+    expect(c.queryRecent).toHaveBeenCalledWith(WRITER);
   });
 
   it("reads a payer's quotes", async () => {

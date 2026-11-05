@@ -41,6 +41,7 @@ export interface ArkivClients {
   patch(entityKey: string, patch: QuotePatch): Promise<void>;
   extend(entityKey: string, seconds: number): Promise<void>;
   queryByPayer(payer: string, writer: string): Promise<unknown[]>;
+  queryRecent(writer: string): Promise<unknown[]>;
 }
 
 export interface ArkivPublisherOptions {
@@ -97,6 +98,10 @@ export function createArkivPublisher(options: ArkivPublisherOptions): QuotePubli
     quotesByPayer(payer: string) {
       return clients.queryByPayer(payer, writer);
     },
+
+    recentQuotes() {
+      return clients.queryRecent(writer);
+    },
   };
 }
 
@@ -136,29 +141,42 @@ export function connectArkiv(connection: ArkivConnection): { clients: ArkivClien
         });
       },
       async queryByPayer(payer, writer) {
-        const page = await publicClient
-          .select({
-            $key: true,
-            quoteId: true,
-            requestId: true,
-            venue: true,
-            fromAsset: true,
-            toAsset: true,
-            status: true,
-            validUntil: true,
-            payload: true,
-            amountReceived: true,
-          })
-          .from(QuoteSchema)
-          .where(and(eq("project", PROJECT), eq("payer", payer)))
-          .ownedBy(writer as Hex)
-          .orderBy(desc("createdAt"))
-          .limit(QUERY_LIMIT)
-          .fetch();
-        return page.entities.map(toPlainRow);
+        return readQuotes(and(eq("project", PROJECT), eq("payer", payer)), writer);
+      },
+      async queryRecent(writer) {
+        return readQuotes(eq("project", PROJECT), writer);
       },
     },
   };
+
+  async function readQuotes(filter: unknown, writer: string) {
+    const page = await quoteSelect()
+      // Both callers filter on indexed columns; the SDK's generics can't express a shared parameter.
+      .where(filter as never)
+      .ownedBy(writer as Hex)
+      .orderBy(desc("createdAt"))
+      .limit(QUERY_LIMIT)
+      .fetch();
+    return page.entities.map(toPlainRow);
+  }
+
+  function quoteSelect() {
+    return publicClient
+      .select({
+        $key: true,
+        quoteId: true,
+        requestId: true,
+        venue: true,
+        fromAsset: true,
+        toAsset: true,
+        status: true,
+        createdAt: true,
+        validUntil: true,
+        payload: true,
+        amountReceived: true,
+      })
+      .from(QuoteSchema);
+  }
 }
 
 /** SDK rows hold typed value wrappers and bigints, neither of which survive JSON. */

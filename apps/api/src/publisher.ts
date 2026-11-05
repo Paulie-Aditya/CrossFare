@@ -25,4 +25,5 @@ export interface QuotePublisher {
   /** Records execution status and, for finished swaps, extends the record's lifetime. */
   updateQuote(entityKey: string, outcome: QuoteOutcome): Promise<void>;
   quotesByPayer(payer: string): Promise<unknown[]>;
+  recentQuotes(): Promise<unknown[]>;
 }
