@@ -23,6 +23,33 @@ describe("loadConfig", () => {
     });
   });
 
+  it("pays for the demo from the agent's account unless told otherwise", () => {
+    const config = loadConfig({ ...env, AGENT_HEDERA_ACCOUNT: "0.0.7", AGENT_HEDERA_KEY: "agentkey" });
+    expect(config.demo).toEqual({
+      accountId: "0.0.7",
+      privateKey: "agentkey",
+      limits: { perIpPerHour: 20, perDay: 200 },
+    });
+    const own = loadConfig({
+      ...env,
+      AGENT_HEDERA_ACCOUNT: "0.0.7",
+      AGENT_HEDERA_KEY: "agentkey",
+      DEMO_HEDERA_ACCOUNT: "0.0.8",
+      DEMO_HEDERA_KEY: "demokey",
+      DEMO_LIMIT_PER_IP_HOUR: "5",
+      DEMO_LIMIT_PER_DAY: "50",
+    });
+    expect(own.demo).toEqual({ accountId: "0.0.8", privateKey: "demokey", limits: { perIpPerHour: 5, perDay: 50 } });
+  });
+
+  it("leaves the demo off with no account to pay from", () => {
+    expect(loadConfig(env).demo).toBeNull();
+  });
+
+  it("finds the built UI", () => {
+    expect(loadConfig(env).webRoot).toBe("../web/dist");
+  });
+
   it("names every missing secret, and never prints a value", () => {
     const { UNISWAP_API_KEY: _u, HEDERA_OPERATOR_KEY: _k, ...partial } = env;
     expect(() => loadConfig(partial)).toThrow(/UNISWAP_API_KEY.*HEDERA_OPERATOR_KEY/);

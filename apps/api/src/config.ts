@@ -14,6 +14,9 @@ export interface Config {
   baseRpcUrl: string;
   port: number;
   databasePath: string;
+  webRoot: string;
+  /** Pays the x402 fee for visitors to the UI. Null turns the /demo routes off. */
+  demo: { accountId: string; privateKey: string; limits: { perIpPerHour: number; perDay: number } } | null;
 }
 
 const REQUIRED = [
@@ -31,6 +34,8 @@ const REQUIRED = [
 const TESTNET_USDC = "0.0.429274";
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
+  const demoAccount = env.DEMO_HEDERA_ACCOUNT || env.AGENT_HEDERA_ACCOUNT;
+  const demoKey = env.DEMO_HEDERA_KEY || env.AGENT_HEDERA_KEY;
   const missing = REQUIRED.filter((name) => !env[name]);
   if (missing.length) throw new Error(`Missing environment variables: ${missing.join(", ")}`);
   if (!/^0x[0-9a-fA-F]+$/.test(env.ARKIV_PRIVATE_KEY!)) {
@@ -50,5 +55,17 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     baseRpcUrl: env.BASE_RPC_URL || "https://mainnet.base.org",
     port: Number(env.PORT || 8787),
     databasePath: env.DATABASE_PATH || "crossfare.db",
+    webRoot: env.WEB_ROOT || "../web/dist",
+    demo:
+      demoAccount && demoKey
+        ? {
+            accountId: demoAccount,
+            privateKey: demoKey,
+            limits: {
+              perIpPerHour: Number(env.DEMO_LIMIT_PER_IP_HOUR || 20),
+              perDay: Number(env.DEMO_LIMIT_PER_DAY || 200),
+            },
+          }
+        : null,
   };
 }

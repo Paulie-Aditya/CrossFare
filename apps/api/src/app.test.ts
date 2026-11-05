@@ -121,6 +121,14 @@ describe("GET /.well-known/x402 authorship", () => {
   });
 });
 
+describe("GET /healthz", () => {
+  it("answers for the hosting platform's health check", async () => {
+    const response = await app([]).request("/healthz");
+    expect(response.status).toBe(200);
+    expect(await (response.json() as Promise<any>)).toEqual({ ok: true });
+  });
+});
+
 describe("GET /v1/assets", () => {
   it("lists assets and the venues that support each", async () => {
     const response = await app([]).request("/v1/assets");

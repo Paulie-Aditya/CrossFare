@@ -156,6 +156,8 @@ export function createApp(deps: AppDeps): Hono {
     return { ...publicRoute, arkiv };
   }
 
+  app.get("/healthz", (c) => c.json({ ok: true }));
+
   app.get("/.well-known/x402", (c) =>
     c.json({
       network: PAYMENT_NETWORK,
