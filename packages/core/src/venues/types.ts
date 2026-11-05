@@ -63,12 +63,15 @@ export interface TrackResult {
 export class VenueError extends Error {
   readonly venue: string;
   readonly status: number;
+  /** Set when the caller can act on the reason, such as "insufficient_balance". */
+  readonly code?: string;
 
-  constructor(venue: string, status: number, message: string) {
+  constructor(venue: string, status: number, message: string, code?: string) {
     super(`${venue}: ${message}`);
     this.name = "VenueError";
     this.venue = venue;
     this.status = status;
+    if (code) this.code = code;
   }
 }
 

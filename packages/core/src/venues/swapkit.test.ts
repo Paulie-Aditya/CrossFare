@@ -310,6 +310,14 @@ describe("swapkit deposit routes from an EVM wallet", () => {
     expect(prepared.transactions).toHaveLength(1);
   });
 
+  it.each([
+    [{ error: "insufficientBalance", message: "Cannot build transaction." }, "insufficient_balance"],
+    [{ error: "quoteError", data: { code: "invalid_recipient_address" } }, "invalid_recipient"],
+  ])("names the caller's mistake when SwapKit refuses the swap", async (answer, code) => {
+    const fetch = fakeFetch({ "/v3/swap": () => json(answer, 400) });
+    await expect(venue(fetch).prepare(evmRoute, evmRequest)).rejects.toMatchObject({ name: "VenueError", code });
+  });
+
   it("tracks by deposit channel when there is one, even with a hash", async () => {
     const fetch = fakeFetch({ "/track": () => json({ status: "pending" }) });
     const prepared = {

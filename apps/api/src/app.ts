@@ -7,6 +7,7 @@ import {
   listAssets,
   rankRoutes,
   toBaseUnits,
+  VenueError,
   type PreparedSwap,
   type QuoteRequest,
   type Route,
@@ -317,7 +318,13 @@ export function createApp(deps: AppDeps): Hono {
       ]);
       if (flagged) return { status: 403, body: { error: "address_flagged" } };
 
-      const prepared = await venue.prepare(fresh, request);
+      let prepared: PreparedSwap;
+      try {
+        prepared = await venue.prepare(fresh, request);
+      } catch (error) {
+        if (error instanceof VenueError && error.code) return { status: 422, body: { error: error.code } };
+        throw error;
+      }
       const swapId = newId("s");
       store.saveSwap({
         id: swapId,

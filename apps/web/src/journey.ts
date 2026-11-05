@@ -234,6 +234,8 @@ export function shorten(value: string): string {
 const ERROR_MESSAGES: Record<string, string> = {
   no_route: "No route supports this pair and amount. Try a larger amount or another pair.",
   venues_unavailable: "The swap venues did not answer. Try again in a moment.",
+  insufficient_balance: "That wallet address doesn't hold this amount. Add funds or enter the wallet you'll send from.",
+  invalid_recipient: "The swap provider refused that receiving address, because funds sent there would be lost.",
   invalid_swap_token: "This quote can't be used from here. Get new quotes and try again.",
   too_many_requotes: "This quote has been refreshed too many times. Get new quotes and try again.",
   route_unavailable: "That route is no longer available. Get new quotes and try again.",

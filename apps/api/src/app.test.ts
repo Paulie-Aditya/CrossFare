@@ -561,6 +561,14 @@ describe("POST /v1/swap when free", () => {
     expect(publisher.publishQuote!.mock.calls.length).toBeLessThanOrEqual(20);
   });
 
+  it.each(["insufficient_balance", "invalid_recipient"])("tells the caller about %s", async (code) => {
+    const { target, quoteId, swapToken, venue } = await quote();
+    venue.prepare.mockRejectedValue(new VenueError("swapkit", 400, "refused", code));
+    const response = await postSwap(target, { quoteId, swapToken });
+    expect(response.status).toBe(422);
+    expect(await (response.json() as Promise<any>)).toEqual({ error: code });
+  });
+
   it("answers 502 when a venue throws", async () => {
     const { target, quoteId, swapToken, venue } = await quote();
     venue.quote.mockRejectedValue(new VenueError("uniswap", 500, "boom"));

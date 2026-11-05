@@ -81,6 +81,14 @@ export interface SwapKitOptions {
   now?: () => Date;
 }
 
+/** Turns SwapKit's refusals into reasons a caller can fix. */
+async function refusalCode(response: Response): Promise<string | undefined> {
+  const body = (await response.json().catch(() => null)) as { error?: string; data?: { code?: string } } | null;
+  if (body?.error === "insufficientBalance") return "insufficient_balance";
+  if (body?.data?.code === "invalid_recipient_address") return "invalid_recipient";
+  return undefined;
+}
+
 export function createSwapKitVenue(options: SwapKitOptions): Venue {
   const fetchImpl = options.fetch ?? globalThis.fetch;
   const now = options.now ?? (() => new Date());
@@ -146,7 +154,7 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
         ...(request.refundAddress ? { refundAddress: request.refundAddress } : {}),
       });
       if (!response.ok) {
-        throw new VenueError(VENUE, response.status, `/v3/swap returned ${response.status}`);
+        throw new VenueError(VENUE, response.status, `/v3/swap returned ${response.status}`, await refusalCode(response));
       }
       const swap = (await response.json()) as ApiSwap;
       const source = getAsset(route.from);
