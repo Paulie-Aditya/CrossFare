@@ -1,5 +1,6 @@
 // Creates the public HCS topic for the payment audit log. Prints the ID for .env.
-import { AccountId, Client, PrivateKey, TopicCreateTransaction } from "@hiero-ledger/sdk";
+import { AccountId, Client, TopicCreateTransaction } from "@hiero-ledger/sdk";
+import { parseHederaKey } from "@crossfare/core/hedera-key";
 
 const { HEDERA_OPERATOR_ID, HEDERA_OPERATOR_KEY } = process.env;
 if (!HEDERA_OPERATOR_ID || !HEDERA_OPERATOR_KEY) {
@@ -8,7 +9,7 @@ if (!HEDERA_OPERATOR_ID || !HEDERA_OPERATOR_KEY) {
 
 const client = Client.forTestnet().setOperator(
   AccountId.fromString(HEDERA_OPERATOR_ID),
-  PrivateKey.fromString(HEDERA_OPERATOR_KEY),
+  parseHederaKey(HEDERA_OPERATOR_KEY),
 );
 const response = await new TopicCreateTransaction().setTopicMemo("Crossfare x402 payment audit log").execute(client);
 const { topicId } = await response.getReceipt(client);

@@ -1,5 +1,6 @@
-import { AccountId, Client, PrivateKey, TopicMessageSubmitTransaction } from "@hiero-ledger/sdk";
+import { AccountId, Client, TopicMessageSubmitTransaction } from "@hiero-ledger/sdk";
 import type { AuditEntry, AuditLog } from "./payment.ts";
+import { parseHederaKey } from "@crossfare/core/hedera-key";
 
 export type SubmitMessage = (message: string) => Promise<void>;
 
@@ -23,7 +24,7 @@ export function createHcsAudit(submit: SubmitMessage): AuditLog {
 export function connectHcs(operatorId: string, operatorKey: string, topicId: string): SubmitMessage {
   const client = Client.forTestnet().setOperator(
     AccountId.fromString(operatorId),
-    PrivateKey.fromString(operatorKey),
+    parseHederaKey(operatorKey),
   );
   return async (message) => {
     const response = await new TopicMessageSubmitTransaction({ topicId, message }).execute(client);

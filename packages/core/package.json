@@ -6,13 +6,15 @@
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
-    "./arkiv-schema": "./src/arkiv-schema.ts"
+    "./arkiv-schema": "./src/arkiv-schema.ts",
+    "./hedera-key": "./src/hedera-key.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@arkiv-network/sdk": "^1.0.1",
+    "@hiero-ledger/sdk": "^2.90.1",
     "viem": "^2.57.16"
   }
 }

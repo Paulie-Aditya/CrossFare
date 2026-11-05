@@ -1,6 +1,5 @@
 import { createPublicClient as createArkivReader } from "@arkiv-network/sdk";
 import { rabdi } from "@arkiv-network/sdk/chains";
-import { PrivateKey } from "@hiero-ledger/sdk";
 import { x402Client } from "@x402/core/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
 import { createClientHederaSigner } from "@x402/hedera";
@@ -12,6 +11,7 @@ import { QuoteSchema } from "@crossfare/core/arkiv-schema";
 import { loadAgentConfig, parseGoalArgs } from "./config.ts";
 import { createSpendPolicy, type Charge } from "./policy.ts";
 import { runAgent, type AgentTransaction } from "./run.ts";
+import { parseHederaKey } from "@crossfare/core/hedera-key";
 
 const config = loadAgentConfig(process.env);
 const account = privateKeyToAccount(config.evmPrivateKey);
@@ -24,7 +24,7 @@ const policy = createSpendPolicy({
   asset: config.usdcTokenId,
 });
 
-const signer = createClientHederaSigner(config.hederaAccount, PrivateKey.fromString(config.hederaKey), {
+const signer = createClientHederaSigner(config.hederaAccount, parseHederaKey(config.hederaKey), {
   network: "hedera:testnet",
 });
 
