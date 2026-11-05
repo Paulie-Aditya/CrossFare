@@ -24,16 +24,30 @@ function fakeVenue(name: string, routes: () => Partial<Route>[], eta: number): V
         etaSeconds: eta,
         validUntil: validUntil(180),
         venueData: null,
+        depositable: name === "swapkit",
         ...route,
       }));
     },
-    async prepare() {
+    async prepare(_route, request) {
       polls = 0;
-      return { transactions: [{ kind: "swap", chainId: 8453, to: "0x000000000000000000000000000000000000dEaD", data: "0x", value: "0x0" }] };
+      const transfer = { kind: "swap" as const, chainId: 8453, to: "0x000000000000000000000000000000000000dEaD", data: "0x", value: "0x0" };
+      if (name !== "swapkit") return { transactions: [transfer] };
+      return {
+        transactions: [transfer],
+        deposit: {
+          asset: request.from.asset,
+          address: "0x2e1ee6c27e66243A6301878E5036e327D48b64B3",
+          amount: request.from.amount,
+          expiresAt: validUntil(86_400),
+          channelId: "mock-channel",
+        },
+      };
     },
-    async track() {
+    async track(input) {
       polls += 1;
-      return polls < 3 ? { status: "confirming" } : { status: "completed", amountReceived: "0.0004" };
+      if (polls <= 1 && input.txHashes.length === 0 && input.prepared.deposit) return { status: "awaiting_deposit" };
+      if (polls < 3) return { status: "exchanging" };
+      return { status: "completed", amountReceived: "0.0004" };
     },
   };
 }
@@ -68,6 +82,7 @@ const app = createApp({
     recentQuotes: async () => rows,
   },
   payTo: "0.0.999",
+  trackIntervalMs: 500,
 });
 
 let payment = 0;

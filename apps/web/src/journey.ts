@@ -7,6 +7,7 @@ export interface PublicRoute {
   fees: Record<string, string>;
   etaSeconds: number;
   validUntil: string;
+  depositable?: boolean;
   arkiv: { entityKey: string | null; pending: boolean };
 }
 
@@ -24,6 +25,7 @@ export interface Deposit {
   memo?: string;
   amount: string;
   expiresAt?: string;
+  channelId?: string;
 }
 
 export type Step = "idle" | "quoting" | "quoted" | "preparing" | "signing" | "tracking" | "finished";
@@ -76,6 +78,7 @@ export type JourneyEvent =
       transactions: SwapTransaction[];
       deposit?: Deposit;
     }
+  | { type: "wallet_send_requested" }
   | { type: "tx_sent"; hash: string }
   | { type: "signed" }
   | { type: "status"; status: string; amountReceived?: string | null; txHashes?: string[] }
@@ -123,6 +126,8 @@ export function reduceJourney(state: JourneyState, event: JourneyEvent): Journey
         deposit: event.deposit ?? null,
         swapStatus: event.deposit ? "awaiting_deposit" : null,
       };
+    case "wallet_send_requested":
+      return { ...state, step: "signing", error: null };
     case "tx_sent":
       return { ...state, txHashes: [...state.txHashes, event.hash] };
     case "signed":
@@ -131,14 +136,16 @@ export function reduceJourney(state: JourneyState, event: JourneyEvent): Journey
       return {
         ...state,
         step: FINISHED.includes(event.status) ? "finished" : "tracking",
-        swapStatus: event.status,
+        // SwapKit can lag a broadcast, but the line shouldn't move backwards.
+        swapStatus: event.status === "awaiting_deposit" && state.txHashes.length ? "confirming" : event.status,
         amountReceived: event.amountReceived ?? state.amountReceived,
         txHashes: event.txHashes?.length ? event.txHashes : state.txHashes,
       };
     case "failed":
       return {
         ...state,
-        step: state.routes.length ? "quoted" : "idle",
+        // An order that exists can still be paid by a plain deposit.
+        step: state.swapId && state.deposit ? "tracking" : state.routes.length ? "quoted" : "idle",
         error: event.message,
       };
     case "arkiv_keys":
@@ -167,7 +174,7 @@ const STATIONS: Omit<Station, "state">[] = [
   { id: "quote", name: "Pay for quotes", detail: "0.01 USDC on Hedera, paid by this demo" },
   { id: "publish", name: "Publish on Arkiv", detail: "Each quote becomes a public record" },
   { id: "choose", name: "Choose a quote", detail: "The best guaranteed amount is marked" },
-  { id: "sign", name: "Sign in your wallet", detail: "Your funds, your signature" },
+  { id: "sign", name: "Send your deposit", detail: "From your own wallet. Crossfare never holds your funds" },
   { id: "confirm", name: "Confirm on chain", detail: "Crossfare tracks the swap until it lands" },
   { id: "deliver", name: "Delivered", detail: "Quoted and received amounts are recorded" },
 ];
@@ -194,7 +201,14 @@ function currentStation(state: JourneyState): number {
 export function journeyStations(state: JourneyState): Station[] {
   const current = currentStation(state);
   const refused = state.step === "finished" && state.swapStatus !== "completed";
-  return STATIONS.map((station, index) => {
+  const awaiting = state.step === "tracking" && state.swapStatus === "awaiting_deposit";
+  return STATIONS.map((rawStation, index) => {
+    const station =
+      rawStation.id === "confirm" && state.swapStatus === "exchanging"
+        ? { ...rawStation, detail: "SwapKit is exchanging your funds" }
+        : rawStation;
+    if (awaiting && station.id === "sign") return { ...station, state: "current" };
+    if (awaiting && station.id === "confirm") return { ...station, state: "upcoming" };
     if (refused && station.id === "deliver") return { ...station, state: "failed" };
     if (current === -1 || index > current) return { ...station, state: "upcoming" };
     return { ...station, state: index === current ? "current" : "done" };
@@ -223,8 +237,46 @@ export function formatCountdown(validUntil: string, now: Date): string {
 export const hashscanUrl = (transactionId: string) => `https://hashscan.io/testnet/transaction/${transactionId}`;
 export const arkivEntityUrl = (entityKey: string) => `https://rabdi.explorer.arkiv.network/entity/${entityKey}`;
 
-export function explorerTxUrl(chainId: number, hash: string): string {
-  return chainId === 1 ? `https://etherscan.io/tx/${hash}` : `https://basescan.org/tx/${hash}`;
+const EXPLORERS: Record<string, { label: string; base: string }> = {
+  eth: { label: "Etherscan", base: "https://etherscan.io/tx/" },
+  base: { label: "Basescan", base: "https://basescan.org/tx/" },
+  btc: { label: "mempool.space", base: "https://mempool.space/tx/" },
+  sol: { label: "Solscan", base: "https://solscan.io/tx/" },
+  xrp: { label: "XRPScan", base: "https://xrpscan.com/tx/" },
+};
+
+export function explorerTxUrl(chain: string, hash: string): string {
+  return `${EXPLORERS[chain]?.base ?? EXPLORERS.base!.base}${hash}`;
+}
+
+/** The first hash is the sender's transaction; any later one lands on the destination. */
+export function explorerLinks(hashes: string[], fromAsset: string, toAsset: string) {
+  return hashes.map((hash, index) => {
+    const chain = (index === 0 ? fromAsset : toAsset).split(":")[0] ?? "";
+    return { hash, label: EXPLORERS[chain]?.label ?? "explorer", url: explorerTxUrl(chain, hash) };
+  });
+}
+
+export type RouteAction = "deposit" | "wallet" | "connect";
+
+/** A plain transfer works from any wallet software; anything else needs a signature here. */
+export function routeAction(route: PublicRoute, connected: boolean): RouteAction {
+  if (route.depositable) return "deposit";
+  return connected ? "wallet" : "connect";
+}
+
+export function defaultSlippage(from: string, to: string): string {
+  return from.split(":")[0] === to.split(":")[0] ? "0.5" : "3";
+}
+
+export function walletMatches(connected: string | undefined, sender: string): boolean {
+  return !!connected && connected.toLowerCase() === sender.trim().toLowerCase();
+}
+
+export function formatDeadline(deadline: string, now: Date): string {
+  const seconds = Math.floor((new Date(deadline).getTime() - now.getTime()) / 1000);
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return formatCountdown(deadline, now);
 }
 
 export function shorten(value: string): string {
@@ -234,6 +286,8 @@ export function shorten(value: string): string {
 const ERROR_MESSAGES: Record<string, string> = {
   no_route: "No route supports this pair and amount. Try a larger amount or another pair.",
   venues_unavailable: "The swap venues did not answer. Try again in a moment.",
+  "invalid sending address": "Your wallet address doesn't fit the chain you're sending from. Check it and try again.",
+  "invalid receiving address": "The receiving address doesn't fit the chain you're swapping to. Check it and try again.",
   insufficient_balance: "That wallet address doesn't hold this amount. Add funds or enter the wallet you'll send from.",
   invalid_recipient: "The swap provider refused that receiving address, because funds sent there would be lost.",
   invalid_swap_token: "This quote can't be used from here. Get new quotes and try again.",

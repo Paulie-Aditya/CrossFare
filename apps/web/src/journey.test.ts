@@ -2,15 +2,21 @@ import { describe, expect, it } from "vitest";
 import {
   arkivEntityUrl,
   bestRoute,
+  defaultSlippage,
   errorMessage,
+  explorerLinks,
   explorerTxUrl,
   formatCountdown,
+  formatDeadline,
   hashscanUrl,
   initialJourney,
   journeyStations,
   reduceJourney,
+  routeAction,
   shorten,
+  walletMatches,
   type JourneyState,
+  type PublicRoute,
 } from "./journey.ts";
 
 const route = (quoteId: string, minAmountOut: string) => ({
@@ -129,7 +135,9 @@ describe("helpers", () => {
   it("builds explorer links", () => {
     expect(hashscanUrl("0.0.1@1.1")).toBe("https://hashscan.io/testnet/transaction/0.0.1@1.1");
     expect(arkivEntityUrl("0xabc")).toBe("https://rabdi.explorer.arkiv.network/entity/0xabc");
-    expect(explorerTxUrl(8453, "0xh")).toBe("https://basescan.org/tx/0xh");
+    expect(explorerTxUrl("base", "0xh")).toBe("https://basescan.org/tx/0xh");
+    expect(explorerTxUrl("eth", "0xh")).toBe("https://etherscan.io/tx/0xh");
+    expect(explorerTxUrl("btc", "abc")).toBe("https://mempool.space/tx/abc");
   });
 
   it("shortens long identifiers only", () => {
@@ -142,9 +150,98 @@ describe("helpers", () => {
     [{ error: "demo_limit_reached" }, 429, /limit/i],
     [{ error: "address_flagged" }, 403, /flagged/i],
     [{ error: "venues_unavailable" }, 502, /try again/i],
+    [{ error: "invalid receiving address" }, 400, /doesn't fit the chain/],
+    [{ error: "insufficient_balance" }, 422, /doesn't hold this amount/],
     [{ error: "brand_new" }, 500, /brand_new/],
   ])("explains %j", (body, status, expected) => {
     expect(errorMessage(body, status)).toMatch(expected);
+  });
+});
+
+describe("order page", () => {
+  const transfer = { kind: "swap" as const, chainId: 1, to: "0xusdc", data: "0x", value: "0x0" };
+  const deposit = { asset: "eth:usdc", address: "0xvault", amount: "5", expiresAt: "2026-11-07T10:00:00.000Z" };
+  const onOrder = reduceJourney(quoted, {
+    type: "swap_prepared",
+    swapId: "s_1",
+    swapPayment: null,
+    transactions: [transfer],
+    deposit,
+  });
+
+  it("waits for the deposit, keeping the transaction for a wallet that wants to send it", () => {
+    expect(onOrder).toMatchObject({ step: "tracking", swapStatus: "awaiting_deposit", deposit, transactions: [transfer] });
+  });
+
+  it("goes straight to signing when a route has no deposit address", () => {
+    const state = reduceJourney(quoted, { type: "swap_prepared", swapId: "s_1", swapPayment: null, transactions: [transfer] });
+    expect(state.step).toBe("signing");
+  });
+
+  it("marks the wallet step while a wallet sends the deposit", () => {
+    expect(reduceJourney(onOrder, { type: "wallet_send_requested" }).step).toBe("signing");
+  });
+
+  it("stays on the order page when the wallet send fails, so the deposit can still be sent", () => {
+    const signing = reduceJourney(onOrder, { type: "wallet_send_requested" });
+    const state = reduceJourney(signing, { type: "failed", message: "Rejected" });
+    expect(state).toMatchObject({ step: "tracking", error: "Rejected", deposit });
+  });
+
+  it("doesn't go back to awaiting the deposit once a transaction was sent", () => {
+    const sent = reduceJourney(onOrder, { type: "tx_sent", hash: "0xh" });
+    expect(reduceJourney(sent, { type: "status", status: "awaiting_deposit" }).swapStatus).toBe("confirming");
+  });
+
+  it("names the deposit in the transit line", () => {
+    const sign = journeyStations(onOrder).find((station) => station.id === "sign")!;
+    expect(sign.name).toBe("Send your deposit");
+  });
+
+  it("explains the current stage of a swap under way", () => {
+    const confirm = (status: string) =>
+      journeyStations({ ...onOrder, swapStatus: status }).find((station) => station.id === "confirm")!;
+    expect(confirm("exchanging").detail).toMatch(/exchang/i);
+    expect(confirm("confirming").detail).toMatch(/confirm|track/i);
+  });
+});
+
+describe("form helpers", () => {
+  const stub = (depositable: boolean) => ({ depositable }) as PublicRoute;
+
+  it("offers a deposit when a plain transfer pays for the route", () => {
+    expect(routeAction(stub(true), false)).toBe("deposit");
+    expect(routeAction(stub(true), true)).toBe("deposit");
+  });
+
+  it("needs a connected wallet for a route that takes a signature", () => {
+    expect(routeAction(stub(false), true)).toBe("wallet");
+    expect(routeAction(stub(false), false)).toBe("connect");
+  });
+
+  it("uses wider slippage across chains", () => {
+    expect(defaultSlippage("eth:usdc", "base:eth")).toBe("3");
+    expect(defaultSlippage("base:usdc", "base:eth")).toBe("0.5");
+  });
+
+  it("compares wallet addresses without regard to case", () => {
+    expect(walletMatches("0xABC", "0xabc")).toBe(true);
+    expect(walletMatches("0xABC", "0xdef")).toBe(false);
+    expect(walletMatches(undefined, "0xabc")).toBe(false);
+  });
+
+  it("shows a long deadline in hours and a short one on a clock", () => {
+    const now = new Date("2026-11-06T10:00:00Z");
+    expect(formatDeadline("2026-11-07T09:59:00Z", now)).toBe("23h 59m");
+    expect(formatDeadline("2026-11-06T10:04:09Z", now)).toBe("4:09");
+    expect(formatDeadline("2026-11-06T09:00:00Z", now)).toBe("Expired");
+  });
+
+  it("links the first hash to the source chain and later ones to the destination", () => {
+    expect(explorerLinks(["0xa", "0xb"], "eth:usdc", "base:eth")).toEqual([
+      { hash: "0xa", label: "Etherscan", url: "https://etherscan.io/tx/0xa" },
+      { hash: "0xb", label: "Basescan", url: "https://basescan.org/tx/0xb" },
+    ]);
   });
 });
 

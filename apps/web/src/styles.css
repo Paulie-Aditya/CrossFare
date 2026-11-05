@@ -133,6 +133,10 @@ h1 {
 
 .field-wide { grid-column: 1 / -1; }
 
+.field-wide input { font-weight: 500; overflow-wrap: anywhere; }
+
+.field-hint { color: var(--sky); font-size: 0.85rem; }
+
 .gate-action {
   grid-column: 1 / -1;
   padding: 0.8rem;
@@ -233,6 +237,60 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 }
 
 .ticket-action:hover:not(:disabled), .receipt-action:hover { background: var(--enamel); }
+
+.order { margin-top: 1.5rem; padding: clamp(1.25rem, 3vw, 2rem); border-radius: 4px; background: var(--paper); color: var(--ink); }
+
+.order h2 { margin: 0 0 0.5rem; font: 700 2.25rem/1.05 var(--display); }
+
+.order-lead { margin: 0 0 0.75rem; font-size: 1.1rem; }
+
+.order-address {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--ink);
+  border-radius: 3px;
+  background: #fff;
+  font-weight: 600;
+}
+
+.order-address span { min-width: 0; overflow-wrap: anywhere; }
+
+.order-copy, .order-restart { border: 0; background: none; color: var(--ink); font-weight: 700; text-decoration: underline; text-underline-offset: 0.18em; cursor: pointer; }
+
+.order-memo { margin: 0.75rem 0 0; }
+
+.order-memo span { overflow-wrap: anywhere; font-weight: 600; }
+
+.order-body { display: flex; flex-wrap: wrap; align-items: center; gap: 1.5rem; margin: 1.25rem 0; }
+
+.order-qr { display: flex; padding: 0.25rem; background: #fff; }
+
+.order-facts { display: grid; flex: 1 1 14rem; gap: 0.75rem; margin: 0; }
+
+.order-facts dt { font-size: 0.9rem; }
+
+.order-facts dd { margin: 0; font: 700 1.3rem/1.2 var(--display); overflow-wrap: anywhere; }
+
+.order-note { margin: 0; font-size: 0.95rem; }
+
+.order-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-top: 1rem; }
+
+.order-send {
+  padding: 0.7rem 1.25rem;
+  border: 0;
+  border-radius: 3px;
+  background: var(--enamel);
+  color: #fff;
+  font: 700 1.15rem/1.2 var(--display);
+  cursor: pointer;
+}
+
+.order-send:hover:not(:disabled) { background: var(--enamel-deep); }
+
+.order :focus-visible { outline-color: var(--stamp); }
 
 .receipt, .deposit { margin-top: 1.5rem; padding: 1.25rem; background: var(--paper); color: var(--ink); }
 
