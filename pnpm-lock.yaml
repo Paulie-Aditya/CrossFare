@@ -35,6 +35,9 @@ importers:
       '@x402/core':
         specifier: ^2.30.0
         version: 2.30.0
+      '@x402/fetch':
+        specifier: ^2.30.0
+        version: 2.30.0
       '@x402/hedera':
         specifier: ^2.30.0
         version: 2.30.0(protobufjs@8.6.6)
@@ -441,6 +444,9 @@ packages:
 
   '@x402/core@2.30.0':
     resolution: {integrity: sha512-gvMxCum2QlNI6jI/3NL1jdrmOgtX9sWEWxSIOmeI67/5ndOJvYOtP7JZLSO8o8af+O+A+Vhhjza1NCda0yVppg==}
+
+  '@x402/fetch@2.30.0':
+    resolution: {integrity: sha512-rEC8CHQN5ZFn2W9b1mZ8ZvRyEw9Zkc5LuuVXo1CBU9w3PCtQO3c7+ChS7Ht9MvF66JTicK3ja0KgUF+fpChvNA==}
 
   '@x402/hedera@2.30.0':
     resolution: {integrity: sha512-r92oEQiUjTbk0jM5oP/EhCK6XXy7s/rqvAm96Fj07pDPU98cGhhRN6UVr0YkiiTa12zTd+T0V/suGjekHSjJmQ==}
@@ -1258,6 +1264,10 @@ snapshots:
   '@x402/core@2.30.0':
     dependencies:
       zod: 4.6.7
+
+  '@x402/fetch@2.30.0':
+    dependencies:
+      '@x402/core': 2.30.0
 
   '@x402/hedera@2.30.0(protobufjs@8.6.6)':
     dependencies:
