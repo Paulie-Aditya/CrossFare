@@ -11,3 +11,7 @@ The developer's prompts to the AI, in order and word for word. ETHGlobal require
 The AI asked whether hacking had started, whether the requirements document could go in the public repo, whether it could push as it went, and whether this was a solo or team project.
 
 > 1. yes; 2. don't put it in public repo for now 3. yes 4. solo; will be making demo video on my own; ai usage is for the code ; with manual intervention as and when needed to fix issues, we'll make something when working,
+
+## 3. Going live
+
+> make the prd live, i will get the api keys and fill it. also for the demo we will have to have a live url to show the swap actually taking place; so there has to be a working ui, and integration with CoinDrop is p2, if all goes well
