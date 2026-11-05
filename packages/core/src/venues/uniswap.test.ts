@@ -1,0 +1,226 @@
+import { describe, expect, it, vi } from "vitest";
+import { createUniswapVenue } from "./uniswap.ts";
+import { VenueError, type FetchLike, type QuoteRequest } from "./types.ts";
+
+const AGENT = "0xC9bebBA9f481b12cE6f3EA54c4B182c9636ec421";
+const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const NOW = new Date("2026-11-06T10:00:00.000Z");
+
+const request: QuoteRequest = {
+  from: { asset: "base:usdc", amount: "2", address: AGENT },
+  to: { asset: "base:eth", address: AGENT },
+  mode: "exact_in",
+  slippageBps: 50,
+};
+
+// Shape follows the examples in the Uniswap API spec (ClassicQuote).
+const quoteResponse = {
+  requestId: "req-1",
+  routing: "CLASSIC",
+  permitData: null,
+  quote: {
+    chainId: 8453,
+    input: { amount: "2000000", token: USDC },
+    output: { amount: "996320746321162", token: "0x0", recipient: AGENT },
+    aggregatedOutputs: [
+      { amount: "996320746321162", token: "0x0", recipient: AGENT, bps: 10000, minAmount: "991339142589556" },
+    ],
+    gasFeeUSD: "0.01",
+    quoteId: "quote-1",
+  },
+};
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status });
+}
+
+function fakeFetch(handlers: Record<string, () => Response>) {
+  return vi.fn<FetchLike>(async (url) => {
+    const path = new URL(url).pathname.replace("/v1", "");
+    const handler = handlers[path];
+    if (!handler) throw new Error(`Unexpected call to ${path}`);
+    return handler();
+  });
+}
+
+function venue(fetch: FetchLike) {
+  return createUniswapVenue({ apiKey: "test-key", fetch, now: () => NOW });
+}
+
+describe("uniswap quote", () => {
+  it("sends a classic-only quote in base units with the API key", async () => {
+    const fetch = fakeFetch({ "/quote": () => json(quoteResponse) });
+    await venue(fetch).quote(request);
+
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe("https://trade-api.gateway.uniswap.org/v1/quote");
+    const headers = new Headers(init?.headers);
+    expect(headers.get("x-api-key")).toBe("test-key");
+    expect(headers.get("x-permit2-disabled")).toBe("true");
+    expect(JSON.parse(init?.body as string)).toEqual({
+      type: "EXACT_INPUT",
+      amount: "2000000",
+      tokenInChainId: 8453,
+      tokenOutChainId: 8453,
+      tokenIn: USDC,
+      tokenOut: "0x0000000000000000000000000000000000000000",
+      swapper: AGENT,
+      recipient: AGENT,
+      slippageTolerance: 0.5,
+      protocols: ["V2", "V3", "V4"],
+    });
+  });
+
+  it("normalizes the classic quote into a route", async () => {
+    const [route] = await venue(fakeFetch({ "/quote": () => json(quoteResponse) })).quote(request);
+    expect(route).toMatchObject({
+      venue: "uniswap",
+      from: "base:usdc",
+      to: "base:eth",
+      amountIn: "2000000",
+      amountOut: "996320746321162",
+      minAmountOut: "991339142589556",
+      fees: { networkUsd: "0.01" },
+      validUntil: "2026-11-06T10:01:00.000Z",
+    });
+  });
+
+  it("expresses exact_out amounts in the output asset", async () => {
+    const fetch = fakeFetch({ "/quote": () => json(quoteResponse) });
+    await venue(fetch).quote({
+      ...request,
+      from: { ...request.from, amount: "0.001" },
+      mode: "exact_out",
+    });
+    const body = JSON.parse(fetch.mock.calls[0]![1]?.body as string);
+    expect(body).toMatchObject({ type: "EXACT_OUTPUT", amount: "1000000000000000" });
+  });
+
+  it("derives the minimum from slippage when aggregated outputs are missing", async () => {
+    const { aggregatedOutputs: _omitted, ...quote } = quoteResponse.quote;
+    const fetch = fakeFetch({ "/quote": () => json({ ...quoteResponse, quote }) });
+    const [route] = await venue(fetch).quote(request);
+    expect(route?.minAmountOut).toBe("991339142589556");
+  });
+
+  it("skips cross-chain pairs without calling the API", async () => {
+    const fetch = fakeFetch({});
+    const routes = await venue(fetch).quote({
+      ...request,
+      to: { asset: "eth:eth", address: AGENT },
+    });
+    expect(routes).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("skips non-EVM pairs without calling the API", async () => {
+    const fetch = fakeFetch({});
+    expect(
+      await venue(fetch).quote({ ...request, to: { asset: "btc:btc", address: "bc1q" } }),
+    ).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns no routes when Uniswap reports none", async () => {
+    const fetch = fakeFetch({ "/quote": () => json({ errorCode: "NoRouteFoundError" }, 404) });
+    expect(await venue(fetch).quote(request)).toEqual([]);
+  });
+
+  it("returns no routes for a routing type /swap can't execute", async () => {
+    const fetch = fakeFetch({ "/quote": () => json({ ...quoteResponse, routing: "DUTCH_V2" }) });
+    expect(await venue(fetch).quote(request)).toEqual([]);
+  });
+
+  it("raises VenueError on a server failure", async () => {
+    const fetch = fakeFetch({ "/quote": () => json({ detail: "boom" }, 500) });
+    await expect(venue(fetch).quote(request)).rejects.toBeInstanceOf(VenueError);
+  });
+
+  it("does not leak the API key in errors", async () => {
+    const fetch = fakeFetch({ "/quote": () => json({ detail: "boom" }, 500) });
+    await expect(venue(fetch).quote(request)).rejects.not.toThrow(/test-key/);
+  });
+});
+
+describe("uniswap prepare", () => {
+  const swapTx = { to: "0xrouter", data: "0xswap", value: "0x00", chainId: 8453 };
+  const approvalTx = { to: USDC, from: AGENT, data: "0xapprove", value: "0x00", chainId: 8453 };
+
+  async function quotedRoute(fetch: FetchLike) {
+    const [route] = await venue(fetch).quote(request);
+    return route!;
+  }
+
+  it("returns the approval then the swap, in order", async () => {
+    const fetch = fakeFetch({
+      "/quote": () => json(quoteResponse),
+      "/check_approval": () => json({ requestId: "a", approval: approvalTx, cancel: null }),
+      "/swap": () => json({ requestId: "s", swap: swapTx }),
+    });
+    const prepared = await venue(fetch).prepare(await quotedRoute(fetch), request);
+    expect(prepared.transactions).toEqual([
+      { kind: "approval", chainId: 8453, to: USDC, data: "0xapprove", value: "0x0" },
+      { kind: "swap", chainId: 8453, to: "0xrouter", data: "0xswap", value: "0x0" },
+    ]);
+  });
+
+  it("puts a required allowance reset before the approval", async () => {
+    const cancel = { ...approvalTx, data: "0xreset" };
+    const fetch = fakeFetch({
+      "/quote": () => json(quoteResponse),
+      "/check_approval": () => json({ requestId: "a", approval: approvalTx, cancel }),
+      "/swap": () => json({ requestId: "s", swap: swapTx }),
+    });
+    const prepared = await venue(fetch).prepare(await quotedRoute(fetch), request);
+    expect(prepared.transactions.map((t) => t.data)).toEqual(["0xreset", "0xapprove", "0xswap"]);
+  });
+
+  it("omits approval when the allowance is already in place", async () => {
+    const fetch = fakeFetch({
+      "/quote": () => json(quoteResponse),
+      "/check_approval": () => json({ requestId: "a", approval: null, cancel: null }),
+      "/swap": () => json({ requestId: "s", swap: swapTx }),
+    });
+    const prepared = await venue(fetch).prepare(await quotedRoute(fetch), request);
+    expect(prepared.transactions.map((t) => t.kind)).toEqual(["swap"]);
+  });
+
+  it("does not check approval when selling the native token", async () => {
+    const nativeRequest: QuoteRequest = {
+      ...request,
+      from: { asset: "base:eth", amount: "0.001", address: AGENT },
+      to: { asset: "base:usdc", address: AGENT },
+    };
+    const fetch = fakeFetch({
+      "/quote": () => json(quoteResponse),
+      "/swap": () => json({ requestId: "s", swap: { ...swapTx, value: "1000" } }),
+    });
+    const [route] = await venue(fetch).quote(nativeRequest);
+    const prepared = await venue(fetch).prepare(route!, nativeRequest);
+    expect(prepared.transactions).toEqual([
+      { kind: "swap", chainId: 8453, to: "0xrouter", data: "0xswap", value: "0x3e8" },
+    ]);
+  });
+
+  it("sends the quote from /quote to /swap unchanged", async () => {
+    const fetch = fakeFetch({
+      "/quote": () => json(quoteResponse),
+      "/check_approval": () => json({ requestId: "a", approval: null, cancel: null }),
+      "/swap": () => json({ requestId: "s", swap: swapTx }),
+    });
+    await venue(fetch).prepare(await quotedRoute(fetch), request);
+    const swapCall = fetch.mock.calls.find(([url]) => url.endsWith("/swap"))!;
+    expect(JSON.parse(swapCall[1]?.body as string)).toEqual({ quote: quoteResponse.quote });
+  });
+
+  it("rejects a swap transaction with empty calldata", async () => {
+    const fetch = fakeFetch({
+      "/quote": () => json(quoteResponse),
+      "/check_approval": () => json({ requestId: "a", approval: null, cancel: null }),
+      "/swap": () => json({ requestId: "s", swap: { ...swapTx, data: "" } }),
+    });
+    await expect(venue(fetch).prepare(await quotedRoute(fetch), request)).rejects.toBeInstanceOf(
+      VenueError,
+    );
+  });
+});
