@@ -31,6 +31,7 @@ export type Step = "idle" | "quoting" | "quoted" | "preparing" | "signing" | "tr
 export interface JourneyState {
   step: Step;
   requestId: string | null;
+  swapToken: string | null;
   routes: PublicRoute[];
   quotePayment: string | null;
   chosenQuoteId: string | null;
@@ -48,6 +49,7 @@ export interface JourneyState {
 export const initialJourney: JourneyState = {
   step: "idle",
   requestId: null,
+  swapToken: null,
   routes: [],
   quotePayment: null,
   chosenQuoteId: null,
@@ -64,13 +66,13 @@ export const initialJourney: JourneyState = {
 
 export type JourneyEvent =
   | { type: "quote_requested" }
-  | { type: "quoted"; requestId: string; routes: PublicRoute[]; quotePayment: string }
+  | { type: "quoted"; requestId: string; swapToken: string; routes: PublicRoute[]; quotePayment: string }
   | { type: "quote_replaced"; oldQuoteId: string; fresh: PublicRoute; reason: string }
   | { type: "swap_requested"; quoteId: string }
   | {
       type: "swap_prepared";
       swapId: string;
-      swapPayment: string;
+      swapPayment: string | null;
       transactions: SwapTransaction[];
       deposit?: Deposit;
     }
@@ -92,6 +94,7 @@ export function reduceJourney(state: JourneyState, event: JourneyEvent): Journey
         ...state,
         step: "quoted",
         requestId: event.requestId,
+        swapToken: event.swapToken,
         routes: event.routes,
         quotePayment: event.quotePayment,
       };
@@ -104,7 +107,9 @@ export function reduceJourney(state: JourneyState, event: JourneyEvent): Journey
         notice:
           event.reason === "price_moved"
             ? "The price moved past your slippage. Here is a new quote; you were not charged."
-            : "That quote expired. Here is a new one; you were not charged.",
+            : event.reason === "route_changed"
+              ? "That provider is no longer available. Here is the best current quote; you were not charged."
+              : "That quote expired. Here is a new one; you were not charged.",
       };
     case "swap_requested":
       return { ...state, step: "preparing", chosenQuoteId: event.quoteId, error: null, notice: null };
@@ -229,6 +234,8 @@ export function shorten(value: string): string {
 const ERROR_MESSAGES: Record<string, string> = {
   no_route: "No route supports this pair and amount. Try a larger amount or another pair.",
   venues_unavailable: "The swap venues did not answer. Try again in a moment.",
+  invalid_swap_token: "This quote can't be used from here. Get new quotes and try again.",
+  too_many_requotes: "This quote has been refreshed too many times. Get new quotes and try again.",
   route_unavailable: "That route is no longer available. Get new quotes and try again.",
   upstream_failed: "A swap venue failed, so you were not charged. Try again in a moment.",
   demo_limit_reached: "This demo has reached its usage limit. Try again later.",

@@ -11,6 +11,8 @@ export interface Config {
   hcsTopicId: string;
   usdcTokenId: string;
   facilitatorUrl: string;
+  /** Unset means POST /v1/swap is free. */
+  swapPriceUsd?: string;
   baseRpcUrl: string;
   port: number;
   databasePath: string;
@@ -52,6 +54,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     hcsTopicId: env.HEDERA_HCS_TOPIC_ID!,
     usdcTokenId: env.HEDERA_USDC_TOKEN_ID || TESTNET_USDC,
     facilitatorUrl: env.X402_FACILITATOR_URL || "https://x402.org/facilitator",
+    ...(env.SWAP_PRICE_USDC ? { swapPriceUsd: env.SWAP_PRICE_USDC } : {}),
     baseRpcUrl: env.BASE_RPC_URL || "https://mainnet.base.org",
     port: Number(env.PORT || 8787),
     databasePath: env.DATABASE_PATH || "crossfare.db",

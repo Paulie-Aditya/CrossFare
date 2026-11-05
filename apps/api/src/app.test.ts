@@ -107,7 +107,7 @@ describe("GET /.well-known/x402", () => {
       payTo: "0.0.999",
       endpoints: expect.arrayContaining([
         expect.objectContaining({ method: "POST", path: "/v1/quote", price: "0.01" }),
-        expect.objectContaining({ method: "POST", path: "/v1/swap", price: "0.05" }),
+        expect.objectContaining({ method: "POST", path: "/v1/swap", price: "0" }),
       ]),
     });
     expect(body.chains).toEqual(expect.arrayContaining(["base", "btc"]));
@@ -276,11 +276,11 @@ describe("GET /v1/quotes", () => {
   });
 });
 
-describe("POST /v1/swap", () => {
+describe("POST /v1/swap when a price is set", () => {
   const validRoute = (min = "1000000") => route("uniswap", min, { venueData: { quote: "original" } });
 
   async function setup(venue = fakeVenue("uniswap", [validRoute()])) {
-    const target = app([venue]);
+    const target = app([venue], { swapPriceUsd: "0.05" });
     const quoted = await (await postQuote(target, quoteBody, { "payment-signature": "quote-payment" })).json() as any;
     return { target, venue, quoteId: quoted.routes[0].quoteId as string };
   }
@@ -289,8 +289,14 @@ describe("POST /v1/swap", () => {
     target.request("/v1/swap", {
       method: "POST",
       headers: { "content-type": "application/json", ...headers },
-      body: JSON.stringify({ quoteId }),
+      body: JSON.stringify({ quoteId, swapToken: store.getQuote(quoteId)?.swapToken }),
     });
+
+  it("shows the price in discovery", async () => {
+    const { target } = await setup();
+    const body = await (await target.request("/.well-known/x402")).json() as any;
+    expect(body.endpoints).toContainEqual(expect.objectContaining({ path: "/v1/swap", price: "0.05" }));
+  });
 
   it("answers 402 without payment", async () => {
     const { target, quoteId, venue } = await setup();
@@ -410,11 +416,26 @@ describe("POST /v1/swap", () => {
       route("swapkit", "1000", { provider: "chainflip", venueData: { routeId: "cf" } }),
       route("swapkit", "2000", { provider: "thorchain", venueData: { routeId: "thor" } }),
     ]);
-    const target = app([venue]);
+    const target = app([venue], { swapPriceUsd: "0.05" });
     const quoted = await (await postQuote(target, quoteBody, { "payment-signature": "q" })).json() as any;
     const chainflip = quoted.routes.find((r: { provider: string }) => r.provider === "chainflip");
     await postSwap(target, chainflip.quoteId);
     expect(venue.prepare.mock.calls[0]![0].venueData).toEqual({ routeId: "cf" });
+  });
+
+  it("offers the best current route when the original provider has gone", async () => {
+    const venue = fakeVenue("swapkit", [route("swapkit", "1000", { provider: "flashnet", venueData: { routeId: "f" } })]);
+    const target = app([venue], { swapPriceUsd: "0.05" });
+    const quoted = await (await postQuote(target, quoteBody, { "payment-signature": "q" })).json() as any;
+    settle.mockClear();
+    venue.quote.mockResolvedValue([
+      route("swapkit", "900", { provider: "near", venueData: { routeId: "n1" } }),
+      route("swapkit", "950", { provider: "chainflip", venueData: { routeId: "c1" } }),
+    ]);
+    const response = await postSwap(target, quoted.routes[0].quoteId);
+    expect(response.status).toBe(409);
+    expect(await (response.json() as Promise<any>)).toMatchObject({ error: "route_changed", freshQuote: { provider: "chainflip" } });
+    expect(settle).not.toHaveBeenCalled();
   });
 
   it("answers 502 without settling when no fresh route exists", async () => {
@@ -436,6 +457,95 @@ describe("POST /v1/swap", () => {
   });
 });
 
+describe("POST /v1/swap when free", () => {
+  const swapRoute = () => route("uniswap", "1000000");
+
+  async function quote(venue = fakeVenue("uniswap", [swapRoute()])) {
+    const target = app([venue]);
+    const body = await (await postQuote(target)).json() as any;
+    settle.mockClear();
+    return { target, venue, body, quoteId: body.routes[0].quoteId as string, swapToken: body.swapToken as string };
+  }
+
+  const postSwap = (target: ReturnType<typeof app>, payload: unknown) =>
+    target.request("/v1/swap", { method: "POST", body: JSON.stringify(payload) });
+
+  it("returns a private token with the quote and keeps it off Arkiv", async () => {
+    const { body, swapToken } = await quote();
+    expect(swapToken.length).toBeGreaterThanOrEqual(32);
+    expect(JSON.stringify(body.routes)).not.toContain(swapToken);
+    expect(JSON.stringify(publisher.publishQuote!.mock.calls)).not.toContain(swapToken);
+  });
+
+  it("prepares the swap with no payment", async () => {
+    const { target, quoteId, swapToken, venue } = await quote();
+    const response = await postSwap(target, { quoteId, swapToken });
+    expect(response.status).toBe(200);
+    const body = await (response.json() as Promise<any>);
+    expect(body).toMatchObject({ swapId: expect.any(String), transactions: [{ kind: "swap" }] });
+    expect(body.payment).toBeUndefined();
+    expect(settle).not.toHaveBeenCalled();
+    expect(venue.prepare).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["wrong", "not-the-token"],
+  ])("refuses a %s token, since quote IDs are public on Arkiv", async (_name, swapToken) => {
+    const { target, quoteId, venue } = await quote();
+    venue.quote.mockClear();
+    const response = await postSwap(target, { quoteId, swapToken });
+    expect(response.status).toBe(403);
+    expect(await (response.json() as Promise<any>)).toEqual({ error: "invalid_swap_token" });
+    expect(venue.quote).not.toHaveBeenCalled();
+    expect(venue.prepare).not.toHaveBeenCalled();
+  });
+
+  it("returns the same swap when asked twice", async () => {
+    const { target, quoteId, swapToken, venue } = await quote();
+    const first = await (await postSwap(target, { quoteId, swapToken })).json() as any;
+    const second = await (await postSwap(target, { quoteId, swapToken })).json() as any;
+    expect(second).toEqual(first);
+    expect(venue.prepare).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives fresh quotes the same token, so the caller can use them", async () => {
+    const { target, quoteId, swapToken, venue } = await quote();
+    venue.quote.mockResolvedValue([route("uniswap", "999999")]);
+    const moved = await (await postSwap(target, { quoteId, swapToken })).json() as any;
+    expect(moved.error).toBe("price_moved");
+    expect(store.getQuote(moved.freshQuote.quoteId)?.swapToken).toBe(swapToken);
+    venue.quote.mockResolvedValue([route("uniswap", "999999")]);
+    const response = await postSwap(target, { quoteId: moved.freshQuote.quoteId, swapToken });
+    expect(response.status).toBe(200);
+  });
+
+  it("publishes a fresh quote under the original payer", async () => {
+    const { target, quoteId, swapToken, venue } = await quote();
+    venue.quote.mockResolvedValue([route("uniswap", "999999")]);
+    await postSwap(target, { quoteId, swapToken });
+    expect(publisher.publishQuote!.mock.calls.at(-1)![0].payer).toBe("0.0.51234");
+  });
+
+  it("caps fresh quotes per request, so one payment can't spam Arkiv", async () => {
+    const { target, quoteId, swapToken, venue } = await quote();
+    venue.quote.mockResolvedValue([route("uniswap", "999999")]);
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 25; attempt++) {
+      statuses.push((await postSwap(target, { quoteId, swapToken })).status);
+    }
+    expect(statuses.at(0)).toBe(409);
+    expect(statuses.at(-1)).toBe(429);
+    expect(publisher.publishQuote!.mock.calls.length).toBeLessThanOrEqual(20);
+  });
+
+  it("answers 502 when a venue throws", async () => {
+    const { target, quoteId, swapToken, venue } = await quote();
+    venue.quote.mockRejectedValue(new VenueError("uniswap", 500, "boom"));
+    expect((await postSwap(target, { quoteId, swapToken })).status).toBe(502);
+  });
+});
+
 describe("swap status", () => {
   async function swapped(track = vi.fn(async () => ({ status: "confirming" }))) {
     const venue = fakeVenue("uniswap", [route("uniswap", "100")]);
@@ -446,8 +556,7 @@ describe("swap status", () => {
     const swap = await (
       await target.request("/v1/swap", {
         method: "POST",
-        headers: { "payment-signature": "s" },
-        body: JSON.stringify({ quoteId }),
+        body: JSON.stringify({ quoteId, swapToken: quoted.swapToken }),
       })
     ).json() as any;
     publisher.updateQuote!.mockClear();
@@ -542,8 +651,7 @@ describe("swap status", () => {
     const swap = await (
       await target.request("/v1/swap", {
         method: "POST",
-        headers: { "payment-signature": "s" },
-        body: JSON.stringify({ quoteId: quoted.routes[0].quoteId }),
+        body: JSON.stringify({ quoteId: quoted.routes[0].quoteId, swapToken: quoted.swapToken }),
       })
     ).json() as any;
     expect(swap.deposit.address).toBe("bc1q");

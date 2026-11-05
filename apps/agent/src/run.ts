@@ -44,7 +44,7 @@ export interface AgentDeps {
   requestQuote(goal: Goal): Promise<ApiResponse>;
   readQuote(entityKey: string): Promise<{ owner: string; payload: any }>;
   listQuotes(): Promise<{ quoteId: string; entityKey: string }[]>;
-  requestSwap(quoteId: string): Promise<ApiResponse>;
+  requestSwap(quoteId: string, swapToken: string): Promise<ApiResponse>;
   sendTransaction(transaction: AgentTransaction): Promise<string>;
   submitHash(swapId: string, hash: string): Promise<void>;
   getStatus(swapId: string): Promise<SwapStatusResponse>;
@@ -162,7 +162,7 @@ export async function runAgent(deps: AgentDeps, goal: Goal): Promise<AgentResult
   let swap: ApiResponse | undefined;
   for (let attempt = 0; attempt < MAX_SWAP_ATTEMPTS; attempt++) {
     try {
-      swap = await deps.requestSwap(chosen.quoteId);
+      swap = await deps.requestSwap(chosen.quoteId, quoted.body.swapToken);
     } catch (error) {
       return stop(deps, (error as Error).message);
     }
@@ -179,7 +179,7 @@ export async function runAgent(deps: AgentDeps, goal: Goal): Promise<AgentResult
   }
 
   const { swapId } = swap.body as { swapId: string };
-  deps.log(`Paid for execution: ${hashscan(swap.body.payment.transactionId)}`);
+  if (swap.body.payment) deps.log(`Paid for execution: ${hashscan(swap.body.payment.transactionId)}`);
 
   const transactions = (swap.body.transactions ?? []) as AgentTransaction[];
   if (transactions.length === 0) {

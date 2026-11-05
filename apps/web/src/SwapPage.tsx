@@ -164,6 +164,7 @@ export function SwapPage() {
     dispatch({
       type: "quoted",
       requestId: answer.body.requestId,
+      swapToken: answer.body.swapToken,
       routes: answer.body.routes,
       quotePayment: answer.body.payment.transactionId,
     });
@@ -188,7 +189,7 @@ export function SwapPage() {
 
   async function swap(route: PublicRoute) {
     dispatch({ type: "swap_requested", quoteId: route.quoteId });
-    const answer = await post("/demo/swap", { quoteId: route.quoteId }).catch(() => null);
+    const answer = await post("/demo/swap", { quoteId: route.quoteId, swapToken: state.swapToken }).catch(() => null);
     if (!answer) return dispatch({ type: "failed", message: "Crossfare did not answer. Check your connection and try again." });
     if (answer.status === 409) {
       return dispatch({
@@ -201,7 +202,7 @@ export function SwapPage() {
     if (!answer.ok) return dispatch({ type: "failed", message: answer.message });
 
     const { swapId, transactions, deposit, payment } = answer.body;
-    dispatch({ type: "swap_prepared", swapId, swapPayment: payment.transactionId, transactions, deposit });
+    dispatch({ type: "swap_prepared", swapId, swapPayment: payment?.transactionId ?? null, transactions, deposit });
     if (deposit) return;
     try {
       await signAll(swapId, transactions);

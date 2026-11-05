@@ -81,7 +81,7 @@ const result = await runAgent(
       return { owner: entity.$owner, payload: JSON.parse(hexToString(entity.payload.value as Hex)) };
     },
     listQuotes: async () => (await getJson(`/v1/quotes?payer=${config.hederaAccount}`)).quotes,
-    requestSwap: (quoteId) => postPaid("/v1/swap", { quoteId }),
+    requestSwap: (quoteId, swapToken) => postPaid("/v1/swap", { quoteId, swapToken }),
     sendTransaction,
     async submitHash(swapId, hash) {
       await fetch(`${config.apiUrl}/v1/swaps/${swapId}/tx`, {

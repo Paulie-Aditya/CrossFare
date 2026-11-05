@@ -16,6 +16,8 @@ export interface StoredQuote {
   payer: string;
   validUntil: string;
   entityKey?: string | null;
+  /** Lets only the caller who got this quote execute it. Never published. */
+  swapToken?: string | null;
 }
 
 export interface StoredSwap {
@@ -41,8 +43,10 @@ export interface Store {
   getQuote(id: string): StoredQuote | null;
   setQuoteEntityKey(id: string, entityKey: string): void;
   setQuoteRoute(id: string, route: unknown): void;
+  countQuotes(requestId: string): number;
   saveSwap(swap: StoredSwap): void;
   getSwap(id: string): StoredSwap | null;
+  getSwapByQuote(quoteId: string): StoredSwap | null;
   updateSwap(id: string, update: SwapUpdate): void;
 }
 
@@ -63,7 +67,8 @@ const SCHEMA = `
     request TEXT NOT NULL,
     payer TEXT NOT NULL,
     valid_until TEXT NOT NULL,
-    entity_key TEXT
+    entity_key TEXT,
+    swap_token TEXT
   );
   CREATE TABLE IF NOT EXISTS swaps (
     id TEXT PRIMARY KEY,
@@ -78,6 +83,20 @@ const SCHEMA = `
 `;
 
 type Row = Record<string, string | null>;
+
+function toSwap(row: Row | undefined): StoredSwap | null {
+  if (!row) return null;
+  return {
+    id: row.id!,
+    quoteId: row.quote_id!,
+    venue: row.venue!,
+    status: row.status as SwapStatus,
+    prepared: JSON.parse(row.prepared!),
+    venueSwapId: row.venue_swap_id ?? null,
+    txHashes: JSON.parse(row.tx_hashes!) as string[],
+    amountReceived: row.amount_received ?? null,
+  };
+}
 
 export function createStore(path: string): Store {
   const db = new DatabaseSync(path);
@@ -112,8 +131,8 @@ export function createStore(path: string): Store {
 
     saveQuote(quote) {
       db.prepare(
-        `INSERT INTO quotes (id, request_id, route, request, payer, valid_until, entity_key)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO quotes (id, request_id, route, request, payer, valid_until, entity_key, swap_token)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         quote.id,
         quote.requestId,
@@ -122,6 +141,7 @@ export function createStore(path: string): Store {
         quote.payer,
         quote.validUntil,
         quote.entityKey ?? null,
+        quote.swapToken ?? null,
       );
     },
 
@@ -136,6 +156,7 @@ export function createStore(path: string): Store {
         payer: row.payer!,
         validUntil: row.valid_until!,
         entityKey: row.entity_key ?? null,
+        swapToken: row.swap_token ?? null,
       };
     },
 
@@ -145,6 +166,13 @@ export function createStore(path: string): Store {
 
     setQuoteRoute(id, route) {
       db.prepare("UPDATE quotes SET route = ? WHERE id = ?").run(JSON.stringify(route), id);
+    },
+
+    countQuotes(requestId) {
+      const row = db.prepare("SELECT COUNT(*) AS total FROM quotes WHERE request_id = ?").get(requestId) as {
+        total: number;
+      };
+      return row.total;
     },
 
     saveSwap(swap) {
@@ -164,18 +192,11 @@ export function createStore(path: string): Store {
     },
 
     getSwap(id) {
-      const row = db.prepare("SELECT * FROM swaps WHERE id = ?").get(id) as Row | undefined;
-      if (!row) return null;
-      return {
-        id: row.id!,
-        quoteId: row.quote_id!,
-        venue: row.venue!,
-        status: row.status as SwapStatus,
-        prepared: JSON.parse(row.prepared!),
-        venueSwapId: row.venue_swap_id ?? null,
-        txHashes: JSON.parse(row.tx_hashes!) as string[],
-        amountReceived: row.amount_received ?? null,
-      };
+      return toSwap(db.prepare("SELECT * FROM swaps WHERE id = ?").get(id) as Row | undefined);
+    },
+
+    getSwapByQuote(quoteId) {
+      return toSwap(db.prepare("SELECT * FROM swaps WHERE quote_id = ?").get(quoteId) as Row | undefined);
     },
 
     updateSwap(id, update) {

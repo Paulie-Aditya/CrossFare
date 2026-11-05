@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import {
   fromBaseUnits,
@@ -18,6 +18,7 @@ import {
   createPaymentGuard,
   type AuditLog,
   type GuardedResult,
+  type HandlerResult,
   type PaymentGateway,
   type PricedEndpoint,
 } from "./payment.ts";
@@ -32,8 +33,8 @@ export const QUOTE_ENDPOINT: PricedEndpoint = {
 
 export const SWAP_ENDPOINT: PricedEndpoint = {
   key: "POST /v1/swap",
-  priceUsd: "0.05",
-  description: "Prepare execution of one quote",
+  priceUsd: "0",
+  description: "Prepare execution of one quote. Needs the swapToken from its quote response",
 };
 
 export interface AppDeps {
@@ -43,6 +44,8 @@ export interface AppDeps {
   audit: AuditLog;
   publisher: QuotePublisher;
   payTo: string;
+  /** Turns on x402 for POST /v1/swap at this USD price. Unset or zero means free. */
+  swapPriceUsd?: string;
   /** The wallet that owns Crossfare's Arkiv records, so readers can check authorship. */
   arkivWriter?: string;
   /** Sanctions screening. Runs before a swap is prepared; a failure blocks the swap. */
@@ -53,6 +56,9 @@ export interface AppDeps {
   publishTimeoutMs?: number;
   onError?: (context: string, error: unknown) => void;
 }
+
+/** Bounds what one paid quote can make Crossfare write to Arkiv through re-quotes. */
+const MAX_QUOTES_PER_REQUEST = 20;
 
 const UNISWAP_VENUE = "uniswap";
 const SWAPKIT_VENUE = "swapkit";
@@ -106,6 +112,12 @@ const TERMINAL: readonly SwapStatus[] = ["completed", "refunded", "failed", "exp
 
 const toSeconds = (iso: string) => Math.floor(new Date(iso).getTime() / 1000);
 
+const digest = (value: string) => createHash("sha256").update(value).digest();
+
+function tokenMatches(expected: string | null | undefined, given: unknown): boolean {
+  return typeof given === "string" && !!expected && timingSafeEqual(digest(expected), digest(given));
+}
+
 export function createApp(deps: AppDeps): Hono {
   const { venues, store, publisher } = deps;
   const now = deps.now ?? (() => new Date());
@@ -113,6 +125,8 @@ export function createApp(deps: AppDeps): Hono {
   const publishTimeoutMs = deps.publishTimeoutMs ?? 8_000;
   const onError = deps.onError ?? ((context, error) => console.error(context, error));
   const guard = createPaymentGuard({ gateway: deps.gateway, store, audit: deps.audit, onError });
+  const swapEndpoint: PricedEndpoint = { ...SWAP_ENDPOINT, priceUsd: deps.swapPriceUsd || SWAP_ENDPOINT.priceUsd };
+  const swapIsFree = !(Number(swapEndpoint.priceUsd) > 0);
   const app = new Hono();
 
   const paymentHeader = (headers: { header(name: string): string | undefined }) =>
@@ -137,9 +151,9 @@ export function createApp(deps: AppDeps): Hono {
   }
 
   /** Stores a route privately, publishes it and returns its public form. */
-  async function recordRoute(route: Route, request: QuoteRequest, requestId: string, payer: string) {
+  async function recordRoute(route: Route, request: QuoteRequest, requestId: string, payer: string, swapToken: string) {
     const quoteId = newId("q");
-    store.saveQuote({ id: quoteId, requestId, route, request, payer, validUntil: route.validUntil });
+    store.saveQuote({ id: quoteId, requestId, route, request, payer, validUntil: route.validUntil, swapToken });
     const publicRoute = { quoteId, ...humanRoute(route) };
     const arkiv = await publish(quoteId, {
       quoteId,
@@ -164,7 +178,7 @@ export function createApp(deps: AppDeps): Hono {
       asset: "USDC",
       payTo: deps.payTo,
       ...(deps.arkivWriter ? { arkiv: { writer: deps.arkivWriter } } : {}),
-      endpoints: [QUOTE_ENDPOINT, SWAP_ENDPOINT].map((endpoint) => {
+      endpoints: [QUOTE_ENDPOINT, swapEndpoint].map((endpoint) => {
         const [method, path] = endpoint.key.split(" ");
         return { method, path, price: endpoint.priceUsd, description: endpoint.description };
       }),
@@ -205,10 +219,11 @@ export function createApp(deps: AppDeps): Hono {
         }
 
         const requestId = newId("r");
+        const swapToken = randomBytes(24).toString("base64url");
         const recorded = await Promise.all(
-          rankRoutes(routes).map((route) => recordRoute(route, request, requestId, payer)),
+          rankRoutes(routes).map((route) => recordRoute(route, request, requestId, payer, swapToken)),
         );
-        return { status: 200, body: { requestId, routes: recorded }, usedBy: requestId };
+        return { status: 200, body: { requestId, swapToken, routes: recorded }, usedBy: requestId };
       },
     );
     return respond(result);
@@ -225,71 +240,94 @@ export function createApp(deps: AppDeps): Hono {
     }
   });
 
+  const swapBody = (swapId: string, venue: string, provider: string | undefined, prepared: PreparedSwap) => ({
+    swapId,
+    venue,
+    ...(provider ? { provider } : {}),
+    transactions: prepared.transactions,
+    ...(prepared.deposit ? { deposit: prepared.deposit } : {}),
+  });
+
+  /** Runs the handler with no payment. Failures answer as they do on the paid path. */
+  async function runFree(handler: (payer: string) => Promise<HandlerResult>, payer: string): Promise<GuardedResult> {
+    try {
+      const { status, body } = await handler(payer);
+      return { status, body };
+    } catch (error) {
+      onError(`${swapEndpoint.key} handler failed`, error);
+      return { status: 502, body: { error: "upstream_failed" } };
+    }
+  }
+
   app.post("/v1/swap", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { quoteId?: unknown } | null;
+    const body = (await c.req.json().catch(() => null)) as { quoteId?: unknown; swapToken?: unknown } | null;
     if (typeof body?.quoteId !== "string") return c.json({ error: "quoteId is required" }, 400);
     const quote = store.getQuote(body.quoteId);
     if (!quote) return c.json({ error: "unknown_quote" }, 404);
+    // Quote IDs are public on Arkiv, so holding one proves nothing.
+    if (!tokenMatches(quote.swapToken, body.swapToken)) return c.json({ error: "invalid_swap_token" }, 403);
 
     const original = quote.route as Route;
     const request = quote.request as QuoteRequest;
+    const existing = store.getSwapByQuote(quote.id);
+    if (existing) {
+      return c.json(swapBody(existing.id, existing.venue, original.provider, existing.prepared as PreparedSwap));
+    }
     const venue = venues.find((candidate) => candidate.name === original.venue);
     if (!venue) return c.json({ error: "venue_unavailable" }, 502);
 
-    const result = await guard.run(
-      { endpoint: SWAP_ENDPOINT, url: c.req.url, header: paymentHeader(c.req) },
-      async (payer) => {
-        const fresh = (await venue.quote(request)).find((route) => route.provider === original.provider);
-        if (!fresh) return { status: 502, body: { error: "route_unavailable" } };
+    const requote = async (error: string, route: Route): Promise<HandlerResult> => {
+      if (store.countQuotes(quote.requestId) >= MAX_QUOTES_PER_REQUEST) {
+        return { status: 429, body: { error: "too_many_requotes" } };
+      }
+      return {
+        status: 409,
+        body: { error, freshQuote: await recordRoute(route, request, quote.requestId, quote.payer, quote.swapToken!) },
+      };
+    };
 
-        const expired = now().getTime() > new Date(quote.validUntil).getTime();
-        const moved = BigInt(fresh.amountOut) < BigInt(original.minAmountOut);
-        if (expired || moved) {
-          return {
-            status: 409,
-            body: {
-              error: expired ? "quote_expired" : "price_moved",
-              freshQuote: await recordRoute(fresh, request, quote.requestId, payer),
-            },
-          };
-        }
+    const handler = async (): Promise<HandlerResult> => {
+      const routes = await venue.quote(request);
+      const fresh = routes.find((route) => route.provider === original.provider);
+      if (!fresh) {
+        // Providers come and go between calls, so offer what's available now.
+        const best = rankRoutes(routes)[0];
+        return best ? requote("route_changed", best) : { status: 502, body: { error: "route_unavailable" } };
+      }
 
-        const flagged = await deps.screen?.([
-          { address: request.from.address, asset: request.from.asset },
-          { address: request.to.address, asset: request.to.asset },
-        ]);
-        if (flagged) return { status: 403, body: { error: "address_flagged" } };
+      const expired = now().getTime() > new Date(quote.validUntil).getTime();
+      const moved = BigInt(fresh.amountOut) < BigInt(original.minAmountOut);
+      if (expired || moved) return requote(expired ? "quote_expired" : "price_moved", fresh);
 
-        const prepared = await venue.prepare(fresh, request);
-        const swapId = newId("s");
-        store.saveSwap({
-          id: swapId,
-          quoteId: quote.id,
-          venue: venue.name,
-          status: "awaiting_deposit",
-          prepared,
-          venueSwapId: prepared.venueSwapId ?? null,
-        });
-        // Tracking needs the route that was actually executed.
-        store.setQuoteRoute(quote.id, fresh);
-        if (quote.entityKey) {
-          publisher
-            .updateQuote(quote.entityKey, { status: "executing" })
-            .catch((error: unknown) => onError(`arkiv update failed for ${quote.id}`, error));
-        }
-        return {
-          status: 200,
-          body: {
-            swapId,
-            venue: venue.name,
-            ...(fresh.provider ? { provider: fresh.provider } : {}),
-            transactions: prepared.transactions,
-            ...(prepared.deposit ? { deposit: prepared.deposit } : {}),
-          },
-          usedBy: swapId,
-        };
-      },
-    );
+      const flagged = await deps.screen?.([
+        { address: request.from.address, asset: request.from.asset },
+        { address: request.to.address, asset: request.to.asset },
+      ]);
+      if (flagged) return { status: 403, body: { error: "address_flagged" } };
+
+      const prepared = await venue.prepare(fresh, request);
+      const swapId = newId("s");
+      store.saveSwap({
+        id: swapId,
+        quoteId: quote.id,
+        venue: venue.name,
+        status: "awaiting_deposit",
+        prepared,
+        venueSwapId: prepared.venueSwapId ?? null,
+      });
+      // Tracking needs the route that was actually executed.
+      store.setQuoteRoute(quote.id, fresh);
+      if (quote.entityKey) {
+        publisher
+          .updateQuote(quote.entityKey, { status: "executing" })
+          .catch((error: unknown) => onError(`arkiv update failed for ${quote.id}`, error));
+      }
+      return { status: 200, body: swapBody(swapId, venue.name, fresh.provider, prepared), usedBy: swapId };
+    };
+
+    const result = swapIsFree
+      ? await runFree(handler, quote.payer)
+      : await guard.run({ endpoint: swapEndpoint, url: c.req.url, header: paymentHeader(c.req) }, handler);
     return respond(result);
   });
 

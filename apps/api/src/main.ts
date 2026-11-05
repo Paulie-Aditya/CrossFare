@@ -43,6 +43,7 @@ const app = createApp({
   audit: createHcsAudit(connectHcs(config.hederaOperatorId, config.hederaOperatorKey, config.hcsTopicId)),
   publisher: createArkivPublisher(arkiv),
   payTo: config.payToAccount,
+  ...(config.swapPriceUsd ? { swapPriceUsd: config.swapPriceUsd } : {}),
   arkivWriter: arkiv.writer,
   screen: createSwapKitScreen({ apiKey: config.swapkitApiKey }),
 });

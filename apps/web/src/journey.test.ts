@@ -26,6 +26,7 @@ const route = (quoteId: string, minAmountOut: string) => ({
 
 const quoted = reduceJourney(initialJourney, {
   type: "quoted",
+  swapToken: "tok",
   requestId: "r_1",
   routes: [route("a", "1"), route("b", "2")],
   quotePayment: "0.0.1@1.1",
@@ -144,6 +145,19 @@ describe("helpers", () => {
     [{ error: "brand_new" }, 500, /brand_new/],
   ])("explains %j", (body, status, expected) => {
     expect(errorMessage(body, status)).toMatch(expected);
+  });
+});
+
+describe("swap token and route changes", () => {
+  it("keeps the token from the quote response for the swap call", () => {
+    const state = reduceJourney(initialJourney, { type: "quoted", requestId: "r_1", swapToken: "tok", routes: [], quotePayment: "t" });
+    expect(state.swapToken).toBe("tok");
+  });
+
+  it("explains a provider change without suggesting a charge", () => {
+    const fresh = { quoteId: "q_2" } as PublicRoute;
+    const state = reduceJourney(initialJourney, { type: "quote_replaced", oldQuoteId: "q_1", fresh, reason: "route_changed" });
+    expect(state.notice).toMatch(/no longer available.*not charged/);
   });
 });
 

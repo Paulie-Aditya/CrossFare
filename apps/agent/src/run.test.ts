@@ -27,7 +27,7 @@ const discovery = {
   arkiv: { writer: WRITER },
   endpoints: [
     { method: "POST", path: "/v1/quote", price: "0.01" },
-    { method: "POST", path: "/v1/swap", price: "0.05" },
+    { method: "POST", path: "/v1/swap", price: "0" },
   ],
 };
 
@@ -42,7 +42,7 @@ beforeEach(() => {
   const routes = [route("q_low", "100"), route("q_high", "200")];
   deps = {
     discover: vi.fn(async () => discovery),
-    requestQuote: vi.fn(async () => ({ status: 200, body: { requestId: "r_1", routes, payment: { transactionId: "0.0.1@1.1" } } })),
+    requestQuote: vi.fn(async () => ({ status: 200, body: { requestId: "r_1", swapToken: "tok", routes, payment: { transactionId: "0.0.1@1.1" } } })),
     readQuote: vi.fn(async (key: string) => ({
       owner: WRITER,
       payload: routes.find((r) => r.arkiv.entityKey === key),
@@ -80,7 +80,7 @@ describe("reference agent", () => {
 
   it("picks the route with the higher guaranteed output and says why", async () => {
     await run();
-    expect(deps.requestSwap).toHaveBeenCalledWith("q_high");
+    expect(deps.requestSwap).toHaveBeenCalledWith("q_high", "tok");
     expect(logs.join("\n")).toMatch(/q_high/);
   });
 
@@ -102,7 +102,7 @@ describe("reference agent", () => {
         : { owner: WRITER, payload: route("q_low", "100") },
     );
     await run();
-    expect(deps.requestSwap).toHaveBeenCalledWith("q_low");
+    expect(deps.requestSwap).toHaveBeenCalledWith("q_low", "tok");
   });
 
   it("drops a route whose Arkiv record has another owner", async () => {
@@ -111,7 +111,7 @@ describe("reference agent", () => {
       payload: key === "0xq_high" ? route("q_high", "200") : route("q_low", "100"),
     }));
     await run();
-    expect(deps.requestSwap).toHaveBeenCalledWith("q_low");
+    expect(deps.requestSwap).toHaveBeenCalledWith("q_low", "tok");
   });
 
   it("stops without paying for a swap when no quote can be verified", async () => {
@@ -126,6 +126,7 @@ describe("reference agent", () => {
       status: 200,
       body: {
         requestId: "r_1",
+        swapToken: "tok",
         routes: [route("q_1", "100", { arkiv: { entityKey: null, pending: true } })],
         payment: { transactionId: "t" },
       },
@@ -136,7 +137,7 @@ describe("reference agent", () => {
     deps.readQuote.mockResolvedValue({ owner: WRITER, payload: route("q_1", "100") });
     await run();
     expect(deps.readQuote).toHaveBeenCalledWith("0xlate");
-    expect(deps.requestSwap).toHaveBeenCalledWith("q_1");
+    expect(deps.requestSwap).toHaveBeenCalledWith("q_1", "tok");
   });
 
   it("re-quotes automatically on a 409, using the fresh quote", async () => {
@@ -148,7 +149,7 @@ describe("reference agent", () => {
       payload: [route("q_low", "100"), route("q_high", "200"), route("q_new", "150")].find((r) => r.arkiv.entityKey === key),
     }));
     const result = await run();
-    expect(deps.requestSwap).toHaveBeenLastCalledWith("q_new");
+    expect(deps.requestSwap).toHaveBeenLastCalledWith("q_new", "tok");
     expect(result.outcome).toBe("completed");
   });
 
@@ -198,6 +199,13 @@ describe("reference agent", () => {
     expect(deps.sendTransaction.mock.calls.map(([t]) => t.kind)).toEqual(["approval", "swap"]);
     expect(deps.submitHash).toHaveBeenCalledTimes(1);
     expect(deps.submitHash).toHaveBeenCalledWith("s_1", "0xswaphash");
+  });
+
+  it("executes when the swap call is free, with no payment in the response", async () => {
+    deps.requestSwap.mockResolvedValue({ status: 200, body: { swapId: "s_1", venue: "uniswap", transactions: [tx] } });
+    const result = await runAgent(deps as unknown as AgentDeps, goal);
+    expect(result.outcome).toBe("completed");
+    expect(logs.join("\n")).not.toContain("Paid for execution");
   });
 
   it("won't send funds to a deposit address on its own", async () => {
