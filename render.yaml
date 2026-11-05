@@ -1,0 +1,23 @@
+# Deploys Crossfare as one web service. Values marked sync:false are set in the
+# Render dashboard and are never stored in this repo.
+services:
+  - type: web
+    name: crossfare
+    runtime: docker
+    plan: starter
+    healthCheckPath: /healthz
+    disk:
+      name: crossfare-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - { key: UNISWAP_API_KEY, sync: false }
+      - { key: SWAPKIT_API_KEY, sync: false }
+      - { key: ARKIV_PRIVATE_KEY, sync: false }
+      - { key: ARKIV_ACCESS_KEY, sync: false }
+      - { key: HEDERA_OPERATOR_ID, sync: false }
+      - { key: HEDERA_OPERATOR_KEY, sync: false }
+      - { key: HEDERA_PAY_TO_ACCOUNT, sync: false }
+      - { key: HEDERA_HCS_TOPIC_ID, sync: false }
+      - { key: DEMO_HEDERA_ACCOUNT, sync: false }
+      - { key: DEMO_HEDERA_KEY, sync: false }
