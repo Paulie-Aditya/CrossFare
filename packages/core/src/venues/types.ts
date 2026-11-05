@@ -35,13 +35,14 @@ export interface PreparedSwap {
 
 /** A venue answered with an error that isn't simply "no route for this pair". */
 export class VenueError extends Error {
-  constructor(
-    readonly venue: string,
-    readonly status: number,
-    message: string,
-  ) {
+  readonly venue: string;
+  readonly status: number;
+
+  constructor(venue: string, status: number, message: string) {
     super(`${venue}: ${message}`);
     this.name = "VenueError";
+    this.venue = venue;
+    this.status = status;
   }
 }
 

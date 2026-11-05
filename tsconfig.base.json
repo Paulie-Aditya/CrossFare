@@ -12,6 +12,7 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
     "allowImportingTsExtensions": true
   }
 }
