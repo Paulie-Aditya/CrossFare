@@ -19,3 +19,9 @@ The AI asked whether hacking had started, whether the requirements document coul
 ## 4. Main flow, FixedFloat-style UI and key review
 
 > update the prd; check fixed float; ideally that should be the ui that the person sees; so an example flow would be; I have my wallet with 100 usdc on eth, I tell my ai agent to swap 20 usdc to say eth on base, so the ai agent uses crossfare, asks for receiving address, gets a quote, and then executes it. quote will be on arkiv as a public record, underlying swapkit will provide the entire routing and swap it and hedera is used by ai agent to pay for the quote call, but there should be a provision for user to input a receiving address, which according to me invalidates HEDERA_PAY_TO_ACCOUNT. still, I have filled out some keys in .env but give me a detailed breakdown and why each is needed, incase there is any discrepancy some may be removed
+
+## 5. Decisions on Uniswap and the swap fee
+
+The AI asked whether to keep Uniswap, whether the swap call should stay paid, and whether to start building.
+
+> 1. yes, swapkit takes additional fees, 2. make it free for now, with the provision of making the api call a paid one later 3. let's resolve all the open pointers first; what is the difference between AGENT_HEDERA_KEY and AGENT_EVM_PRIVATE_KEY
