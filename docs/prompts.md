@@ -25,3 +25,9 @@ The AI asked whether hacking had started, whether the requirements document coul
 The AI asked whether to keep Uniswap, whether the swap call should stay paid, and whether to start building.
 
 > 1. yes, swapkit takes additional fees, 2. make it free for now, with the provision of making the api call a paid one later 3. let's resolve all the open pointers first; what is the difference between AGENT_HEDERA_KEY and AGENT_EVM_PRIVATE_KEY
+
+## 6. Open points settled
+
+The AI listed seven open points: how the agent is driven, planning artifacts in the repo, commit wording, hosting, demo funds, plans after the event, and contacting SwapKit.
+
+> 1. terminal sounds good 2. sure 3. cool 4. will deploy on ec2 5. 10$ is fine 6. yep, this is being built because it serves a real purpose in CoinDrop, a lot of users do swaps but there there's a single liquidity provider, using Crossfare they would be able to freely swap while providing an additional revenue stream 7. let's focus on the hackathon first, we will then have a chat with swapkit for this, additionally while integrating with CoinDrop in the future I will be adding higher swap fees and all

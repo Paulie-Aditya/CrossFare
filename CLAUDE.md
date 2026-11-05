@@ -3,15 +3,16 @@
 Open-source cross-chain swap API that AI agents pay for per call: x402 payment on Hedera, quotes published on Arkiv, execution through the SwapKit API or Uniswap. Built for ETHGlobal Mumbai (Classic track).
 
 - **Source of truth:** the [Crossfare PRD](https://claude.ai/artifact/F6egMmxjGd4pvKKd3pAWoZ). Requirement IDs (`FR-n`) refer to it. If the code needs to differ from the PRD, say so instead of drifting silently.
-- **PRD stays private for now:** do not copy it or its contents into this public repo. Before submitting, ask the user how to meet ETHGlobal's rule on including planning artifacts.
+- **PRD stays private for now:** do not copy it or its contents into this public repo yet. At submission, commit a copy without the SwapKit terms analysis and CoinDrop plans, and state what was removed, to meet ETHGlobal's rule on planning artifacts.
 - **Team:** solo. AI writes the code, directed by the developer, who steps in manually to fix issues. The developer records the demo video.
 - **Pushing:** push to `origin` after each commit. The public history is evidence of steady progress.
+- **Deployment:** the developer deploys to AWS EC2.
 - **Scope gate:** P0 requirements only until the reference agent completes the whole loop once. P1 work starts after that. P2 waits until after the hackathon.
 
 ## Working rules
 
 ### No AI attribution
-Never add AI attribution to commits, PRs, code or comments. That means no `Co-Authored-By` trailers for AI tools, no "Generated with" lines and no mention of AI in commit messages.
+Never add AI attribution to commits, PRs, code or comments. That means no `Co-Authored-By` trailers for AI tools and no "Generated with" lines. A commit may still name AI when it describes the disclosure work itself.
 
 This does not cover `AI_USAGE.md`. ETHGlobal requires that disclosure (see below), so keep it accurate and never understate AI involvement.
 
