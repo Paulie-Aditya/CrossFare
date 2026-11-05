@@ -101,9 +101,18 @@ pnpm monorepo on Node.js 22 and TypeScript:
 - `apps/web`: demo UI (React, Vite, wagmi)
 - `packages/mcp`: MCP server (P1)
 
-Key dependencies: `@x402/hedera`, `@hiero-ledger/sdk`, `@arkiv-network/sdk`, Drizzle with SQLite. Uniswap and SwapKit are called over HTTPS.
+Key dependencies: `@x402/hedera`, `@hiero-ledger/sdk`, `@arkiv-network/sdk`, `node:sqlite`. Uniswap and SwapKit are called over HTTPS.
 
-Build and test commands go here once the repo is scaffolded.
+## Commands
+
+- `pnpm test`: run all tests
+- `pnpm typecheck`: type-check every package
+- `pnpm check:venues`: real quotes from the live venues, spends nothing
+- `pnpm setup:topic`: create the HCS audit topic
+- `pnpm --filter @crossfare/api start`: run the API
+- `pnpm --filter @crossfare/agent start --from base:usdc --to base:eth --amount 1`: run the agent; swaps stay off unless `AGENT_ALLOW_LIVE_SWAPS=true`
+
+Keep `AI_USAGE.md` and `docs/prompts.md` current: add each new developer prompt, and record any manual code change.
 
 ## Invariants
 
