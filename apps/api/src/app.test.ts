@@ -54,7 +54,12 @@ beforeEach(() => {
     updateQuote: vi.fn(async () => {}),
     quotesByPayer: vi.fn(async () => [{ quoteId: "q_x" }]),
   };
-  settle = vi.fn(gateway.settle);
+  let settled = 0;
+  settle = vi.fn(async () => ({
+    success: true,
+    transactionId: settled++ === 0 ? "0.0.1@1.1" : `0.0.1@1.${settled}`,
+    payer: "0.0.51234",
+  }));
 });
 
 function app(venues: Venue[], overrides: Partial<AppDeps> = {}) {
@@ -245,5 +250,243 @@ describe("GET /v1/quotes", () => {
 
   it("requires a payer", async () => {
     expect((await app([]).request("/v1/quotes")).status).toBe(400);
+  });
+});
+
+describe("POST /v1/swap", () => {
+  const validRoute = (min = "1000000") => route("uniswap", min, { venueData: { quote: "original" } });
+
+  async function setup(venue = fakeVenue("uniswap", [validRoute()])) {
+    const target = app([venue]);
+    const quoted = await (await postQuote(target, quoteBody, { "payment-signature": "quote-payment" })).json() as any;
+    return { target, venue, quoteId: quoted.routes[0].quoteId as string };
+  }
+
+  const postSwap = (target: ReturnType<typeof app>, quoteId: string, headers: Record<string, string> = { "payment-signature": "swap-payment" }) =>
+    target.request("/v1/swap", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify({ quoteId }),
+    });
+
+  it("answers 402 without payment", async () => {
+    const { target, quoteId, venue } = await setup();
+    const response = await postSwap(target, quoteId, {});
+    expect(response.status).toBe(402);
+    expect(venue.prepare).not.toHaveBeenCalled();
+  });
+
+  it("requires a quote ID", async () => {
+    const response = await app([]).request("/v1/swap", { method: "POST", body: "{}" });
+    expect(response.status).toBe(400);
+  });
+
+  it("answers 404 for an unknown quote before asking for payment", async () => {
+    const response = await postSwap(app([]), "q_missing", {});
+    expect(response.status).toBe(404);
+  });
+
+  it("returns unsigned transactions and settles the payment", async () => {
+    const { target, quoteId } = await setup();
+    settle.mockClear();
+    const response = await postSwap(target, quoteId);
+    expect(response.status).toBe(200);
+    const body = await (response.json() as Promise<any>);
+    expect(body).toMatchObject({
+      swapId: expect.any(String),
+      venue: "uniswap",
+      transactions: [{ kind: "swap", to: "0xrouter" }],
+      payment: { transactionId: expect.any(String) },
+    });
+    expect(settle).toHaveBeenCalledTimes(1);
+  });
+
+  it("executes with the fresh quote, not the stored one", async () => {
+    const venue = fakeVenue("uniswap", [validRoute()]);
+    const { target, quoteId } = await setup(venue);
+    venue.quote.mockResolvedValue([route("uniswap", "1000000", { venueData: { quote: "fresh" } })]);
+    await postSwap(target, quoteId);
+    expect(venue.prepare.mock.calls[0]![0].venueData).toEqual({ quote: "fresh" });
+    expect(venue.prepare.mock.calls[0]![1]).toMatchObject({ from: { address: AGENT } });
+  });
+
+  it("marks the Arkiv record as executing", async () => {
+    const { target, quoteId } = await setup();
+    await postSwap(target, quoteId);
+    expect(publisher.updateQuote).toHaveBeenCalledWith(`0xentity-${quoteId}`, { status: "executing" });
+  });
+
+  it("answers 409 with a fresh quote when expired, without settling", async () => {
+    const { target, quoteId, venue } = await setup();
+    settle.mockClear();
+    currentTime = new Date("2026-11-06T10:02:00.000Z");
+    venue.quote.mockResolvedValue([route("uniswap", "900000", { validUntil: "2026-11-06T10:03:00.000Z" })]);
+
+    const response = await postSwap(target, quoteId);
+    expect(response.status).toBe(409);
+    const body = await (response.json() as Promise<any>);
+    expect(body.error).toBe("quote_expired");
+    expect(body.freshQuote).toMatchObject({ venue: "uniswap", arkiv: { pending: false } });
+    expect(body.freshQuote.quoteId).not.toBe(quoteId);
+    expect(store.getQuote(body.freshQuote.quoteId)?.requestId).toBe(store.getQuote(quoteId)?.requestId);
+    expect(settle).not.toHaveBeenCalled();
+    expect(venue.prepare).not.toHaveBeenCalled();
+  });
+
+  it("answers 409 with a fresh quote when price moved past slippage", async () => {
+    const { target, quoteId, venue } = await setup();
+    settle.mockClear();
+    venue.quote.mockResolvedValue([route("uniswap", "999999")]);
+    const response = await postSwap(target, quoteId);
+    expect(response.status).toBe(409);
+    expect(await (response.json() as Promise<any>)).toMatchObject({ error: "price_moved" });
+    expect(settle).not.toHaveBeenCalled();
+  });
+
+  it("matches the fresh route by provider", async () => {
+    const venue = fakeVenue("swapkit", [
+      route("swapkit", "1000", { provider: "chainflip", venueData: { routeId: "cf" } }),
+      route("swapkit", "2000", { provider: "thorchain", venueData: { routeId: "thor" } }),
+    ]);
+    const target = app([venue]);
+    const quoted = await (await postQuote(target, quoteBody, { "payment-signature": "q" })).json() as any;
+    const chainflip = quoted.routes.find((r: { provider: string }) => r.provider === "chainflip");
+    await postSwap(target, chainflip.quoteId);
+    expect(venue.prepare.mock.calls[0]![0].venueData).toEqual({ routeId: "cf" });
+  });
+
+  it("answers 502 without settling when no fresh route exists", async () => {
+    const { target, quoteId, venue } = await setup();
+    settle.mockClear();
+    venue.quote.mockResolvedValue([]);
+    const response = await postSwap(target, quoteId);
+    expect(response.status).toBe(502);
+    expect(settle).not.toHaveBeenCalled();
+  });
+
+  it("answers 502 without settling when preparation fails", async () => {
+    const { target, quoteId, venue } = await setup();
+    settle.mockClear();
+    venue.prepare.mockRejectedValue(new VenueError("uniswap", 500, "boom"));
+    const response = await postSwap(target, quoteId);
+    expect(response.status).toBe(502);
+    expect(settle).not.toHaveBeenCalled();
+  });
+});
+
+describe("swap status", () => {
+  async function swapped(track = vi.fn(async () => ({ status: "confirming" }))) {
+    const venue = fakeVenue("uniswap", [route("uniswap", "100")]);
+    (venue as unknown as { track: unknown }).track = track;
+    const target = app([venue]);
+    const quoted = await (await postQuote(target, quoteBody, { "payment-signature": "q" })).json() as any;
+    const quoteId = quoted.routes[0].quoteId as string;
+    const swap = await (
+      await target.request("/v1/swap", {
+        method: "POST",
+        headers: { "payment-signature": "s" },
+        body: JSON.stringify({ quoteId }),
+      })
+    ).json() as any;
+    publisher.updateQuote!.mockClear();
+    return { target, swapId: swap.swapId as string, quoteId, track };
+  }
+
+  const submit = (target: ReturnType<typeof app>, swapId: string, hash: unknown) =>
+    target.request(`/v1/swaps/${swapId}/tx`, { method: "POST", body: JSON.stringify({ hash }) });
+
+  it("answers 404 for an unknown swap", async () => {
+    expect((await app([]).request("/v1/swaps/nope")).status).toBe(404);
+  });
+
+  it("reports status, hashes and the Arkiv key without payment", async () => {
+    const { target, swapId, quoteId } = await swapped();
+    const response = await target.request(`/v1/swaps/${swapId}`);
+    expect(response.status).toBe(200);
+    expect(await (response.json() as Promise<any>)).toEqual({
+      swapId,
+      quoteId,
+      status: "confirming",
+      txHashes: [],
+      amountReceived: null,
+      arkiv: { entityKey: `0xentity-${quoteId}` },
+    });
+  });
+
+  it("accepts a transaction hash and passes it to tracking", async () => {
+    const { target, swapId, track } = await swapped();
+    expect((await submit(target, swapId, "0xabc")).status).toBe(200);
+    await target.request(`/v1/swaps/${swapId}`);
+    expect(track.mock.lastCall![0 as never]).toMatchObject({ txHashes: ["0xabc"] });
+  });
+
+  it("does not record the same hash twice", async () => {
+    const { target, swapId } = await swapped();
+    await submit(target, swapId, "0xabc");
+    await submit(target, swapId, "0xabc");
+    expect(store.getSwap(swapId)?.txHashes).toEqual(["0xabc"]);
+  });
+
+  it("rejects a malformed hash", async () => {
+    const { target, swapId } = await swapped();
+    expect((await submit(target, swapId, 42)).status).toBe(400);
+  });
+
+  it("records the outcome on Arkiv when the swap finishes", async () => {
+    const track = vi.fn(async () => ({ status: "completed", amountReceived: "0.5", txHashes: ["0x1", "0x2"] }));
+    const { target, swapId, quoteId } = await swapped(track);
+    const response = await target.request(`/v1/swaps/${swapId}`);
+    expect(await (response.json() as Promise<any>)).toMatchObject({
+      status: "completed",
+      amountReceived: "0.5",
+      txHashes: ["0x1", "0x2"],
+    });
+    expect(publisher.updateQuote).toHaveBeenCalledWith(`0xentity-${quoteId}`, {
+      status: "completed",
+      amountReceived: "0.5",
+      txHashes: ["0x1", "0x2"],
+    });
+  });
+
+  it("stops polling the venue and rewriting Arkiv once finished", async () => {
+    const track = vi.fn(async () => ({ status: "failed" }));
+    const { target, swapId } = await swapped(track);
+    await target.request(`/v1/swaps/${swapId}`);
+    await target.request(`/v1/swaps/${swapId}`);
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(publisher.updateQuote).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the last status when tracking fails", async () => {
+    const track = vi.fn(async () => {
+      throw new Error("venue down");
+    });
+    const { target, swapId } = await swapped(track as never);
+    const response = await target.request(`/v1/swaps/${swapId}`);
+    expect(response.status).toBe(200);
+    expect((await (response.json() as Promise<any>)).status).toBe("awaiting_deposit");
+  });
+
+  it("expires a deposit whose deadline passed with nothing sent", async () => {
+    const track = vi.fn(async () => ({ status: "awaiting_deposit" }));
+    const venue = fakeVenue("swapkit", [route("swapkit", "100")]);
+    venue.prepare.mockResolvedValue({
+      transactions: [],
+      deposit: { asset: "btc:btc", address: "bc1q", amount: "1", expiresAt: "2026-11-06T10:10:00.000Z" },
+    });
+    (venue as unknown as { track: unknown }).track = track;
+    const target = app([venue]);
+    const quoted = await (await postQuote(target, quoteBody, { "payment-signature": "q" })).json() as any;
+    const swap = await (
+      await target.request("/v1/swap", {
+        method: "POST",
+        headers: { "payment-signature": "s" },
+        body: JSON.stringify({ quoteId: quoted.routes[0].quoteId }),
+      })
+    ).json() as any;
+    expect(swap.deposit.address).toBe("bc1q");
+    currentTime = new Date("2026-11-06T10:11:00.000Z");
+    const status = await (await target.request(`/v1/swaps/${swap.swapId}`)).json() as any;
+    expect(status.status).toBe("expired");
   });
 });

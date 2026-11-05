@@ -119,12 +119,18 @@ export function createPaymentGuard(options: PaymentGuardOptions): PaymentGuard {
       }
 
       const usedBy = result.usedBy ?? "";
-      store.settlePayment(fingerprint, {
-        transactionId: settled.transactionId,
-        payer: settled.payer,
-        amount: endpoint.priceUsd,
-        usedBy,
-      });
+      try {
+        store.settlePayment(fingerprint, {
+          transactionId: settled.transactionId,
+          payer: settled.payer,
+          amount: endpoint.priceUsd,
+          usedBy,
+        });
+      } catch (error) {
+        // The unique transaction ID: this Hedera payment already bought another request.
+        onError("payment reuse rejected", error);
+        return { status: 402, body: { error: "payment_already_used" } };
+      }
       await audit
         .log({
           payer: settled.payer,

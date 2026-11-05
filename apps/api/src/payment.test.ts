@@ -140,6 +140,13 @@ describe("payment guard", () => {
     expect(result.body).toEqual({ error: "settlement_failed" });
   });
 
+  it("rejects a Hedera transaction that already paid for another request", async () => {
+    await guard().run({ endpoint: ENDPOINT, url: URL_, header: "first" }, okHandler);
+    const result = await guard().run({ endpoint: ENDPOINT, url: URL_, header: "second" }, okHandler);
+    expect(result.status).toBe(402);
+    expect(result.body).toEqual({ error: "payment_already_used" });
+  });
+
   it("records the payment in the private store and the audit log", async () => {
     await guard().run({ endpoint: ENDPOINT, url: URL_, header: "pay" }, okHandler);
     expect(audit.log).toHaveBeenCalledWith({

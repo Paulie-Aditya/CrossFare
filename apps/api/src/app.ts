@@ -6,8 +6,10 @@ import {
   listAssets,
   rankRoutes,
   toBaseUnits,
+  type PreparedSwap,
   type QuoteRequest,
   type Route,
+  type SwapStatus,
   type Venue,
 } from "@crossfare/core";
 import {
@@ -94,6 +96,8 @@ function humanRoute(route: Route) {
     validUntil: route.validUntil,
   };
 }
+
+const TERMINAL: readonly SwapStatus[] = ["completed", "refunded", "failed", "expired"];
 
 const toSeconds = (iso: string) => Math.floor(new Date(iso).getTime() / 1000);
 
@@ -207,6 +211,138 @@ export function createApp(deps: AppDeps): Hono {
     if (!payer) return c.json({ error: "payer is required" }, 400);
     return c.json({ quotes: await publisher.quotesByPayer(payer) });
   });
+
+  app.post("/v1/swap", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { quoteId?: unknown } | null;
+    if (typeof body?.quoteId !== "string") return c.json({ error: "quoteId is required" }, 400);
+    const quote = store.getQuote(body.quoteId);
+    if (!quote) return c.json({ error: "unknown_quote" }, 404);
+
+    const original = quote.route as Route;
+    const request = quote.request as QuoteRequest;
+    const venue = venues.find((candidate) => candidate.name === original.venue);
+    if (!venue) return c.json({ error: "venue_unavailable" }, 502);
+
+    const result = await guard.run(
+      { endpoint: SWAP_ENDPOINT, url: c.req.url, header: paymentHeader(c.req) },
+      async (payer) => {
+        const fresh = (await venue.quote(request)).find((route) => route.provider === original.provider);
+        if (!fresh) return { status: 502, body: { error: "route_unavailable" } };
+
+        const expired = now().getTime() > new Date(quote.validUntil).getTime();
+        const moved = BigInt(fresh.amountOut) < BigInt(original.minAmountOut);
+        if (expired || moved) {
+          return {
+            status: 409,
+            body: {
+              error: expired ? "quote_expired" : "price_moved",
+              freshQuote: await recordRoute(fresh, request, quote.requestId, payer),
+            },
+          };
+        }
+
+        const prepared = await venue.prepare(fresh, request);
+        const swapId = newId("s");
+        store.saveSwap({
+          id: swapId,
+          quoteId: quote.id,
+          venue: venue.name,
+          status: "awaiting_deposit",
+          prepared,
+          venueSwapId: prepared.venueSwapId ?? null,
+        });
+        // Tracking needs the route that was actually executed.
+        store.setQuoteRoute(quote.id, fresh);
+        if (quote.entityKey) {
+          publisher
+            .updateQuote(quote.entityKey, { status: "executing" })
+            .catch((error: unknown) => onError(`arkiv update failed for ${quote.id}`, error));
+        }
+        return {
+          status: 200,
+          body: {
+            swapId,
+            venue: venue.name,
+            ...(fresh.provider ? { provider: fresh.provider } : {}),
+            transactions: prepared.transactions,
+            ...(prepared.deposit ? { deposit: prepared.deposit } : {}),
+          },
+          usedBy: swapId,
+        };
+      },
+    );
+    return respond(result);
+  });
+
+  app.post("/v1/swaps/:id/tx", async (c) => {
+    const swap = store.getSwap(c.req.param("id"));
+    if (!swap) return c.json({ error: "unknown_swap" }, 404);
+    const body = (await c.req.json().catch(() => null)) as { hash?: unknown } | null;
+    if (typeof body?.hash !== "string" || !body.hash) return c.json({ error: "hash is required" }, 400);
+    const known = swap.txHashes ?? [];
+    if (!known.includes(body.hash)) store.updateSwap(swap.id, { txHashes: [...known, body.hash] });
+    return c.json({ swapId: swap.id, txHashes: store.getSwap(swap.id)?.txHashes });
+  });
+
+  app.get("/v1/swaps/:id", async (c) => {
+    const swap = store.getSwap(c.req.param("id"));
+    if (!swap) return c.json({ error: "unknown_swap" }, 404);
+    const quote = store.getQuote(swap.quoteId);
+    if (!quote) return c.json({ error: "unknown_quote" }, 404);
+
+    if (!TERMINAL.includes(swap.status)) await refreshSwap(swap.id, quote);
+
+    const current = store.getSwap(swap.id)!;
+    return c.json({
+      swapId: current.id,
+      quoteId: current.quoteId,
+      status: current.status,
+      txHashes: current.txHashes,
+      amountReceived: current.amountReceived,
+      arkiv: { entityKey: quote.entityKey ?? null },
+    });
+  });
+
+  /** Advances a swap from the venue. A tracking failure leaves the last known status. */
+  async function refreshSwap(swapId: string, quote: NonNullable<ReturnType<Store["getQuote"]>>) {
+    const swap = store.getSwap(swapId)!;
+    const venue = venues.find((candidate) => candidate.name === swap.venue);
+    if (!venue) return;
+
+    try {
+      const prepared = swap.prepared as PreparedSwap;
+      const tracked = await venue.track({
+        route: quote.route as Route,
+        request: quote.request as QuoteRequest,
+        prepared,
+        txHashes: swap.txHashes ?? [],
+        venueSwapId: swap.venueSwapId ?? null,
+      });
+
+      const deadline = prepared.deposit?.expiresAt;
+      const lapsed =
+        tracked.status === "awaiting_deposit" && deadline && now().getTime() > new Date(deadline).getTime();
+      const status: SwapStatus = lapsed ? "expired" : tracked.status;
+
+      store.updateSwap(swap.id, {
+        status,
+        ...(tracked.txHashes ? { txHashes: tracked.txHashes } : {}),
+        ...(tracked.amountReceived ? { amountReceived: tracked.amountReceived } : {}),
+      });
+
+      if (TERMINAL.includes(status) && quote.entityKey) {
+        await publisher
+          .updateQuote(quote.entityKey, {
+            status,
+            ...(tracked.amountReceived ? { amountReceived: tracked.amountReceived } : {}),
+            ...(tracked.txHashes ? { txHashes: tracked.txHashes } : {}),
+          })
+          .catch((error: unknown) => onError(`arkiv update failed for ${quote.id}`, error));
+      }
+    } catch (error) {
+      onError(`tracking failed for ${swap.id}`, error);
+    }
+  }
 
   return app;
 }

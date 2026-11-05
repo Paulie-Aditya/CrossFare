@@ -40,6 +40,7 @@ export interface Store {
   saveQuote(quote: StoredQuote): void;
   getQuote(id: string): StoredQuote | null;
   setQuoteEntityKey(id: string, entityKey: string): void;
+  setQuoteRoute(id: string, route: unknown): void;
   saveSwap(swap: StoredSwap): void;
   getSwap(id: string): StoredSwap | null;
   updateSwap(id: string, update: SwapUpdate): void;
@@ -140,6 +141,10 @@ export function createStore(path: string): Store {
 
     setQuoteEntityKey(id, entityKey) {
       db.prepare("UPDATE quotes SET entity_key = ? WHERE id = ?").run(entityKey, id);
+    },
+
+    setQuoteRoute(id, route) {
+      db.prepare("UPDATE quotes SET route = ? WHERE id = ?").run(JSON.stringify(route), id);
     },
 
     saveSwap(swap) {
