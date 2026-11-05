@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "typecheck": "pnpm -r --if-present typecheck",
     "check:venues": "node --env-file=.env scripts/check-venues.ts",
-    "setup:topic": "node --env-file=.env scripts/create-hcs-topic.ts"
+    "setup:topic": "node --env-file=.env scripts/create-hcs-topic.ts",
+    "setup:usdc": "node --env-file=.env scripts/associate-usdc.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

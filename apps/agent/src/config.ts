@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { isValidAddress, parseAssetId } from "@crossfare/core";
 import type { Goal } from "./run.ts";
 
 const USDC_DECIMALS = 1_000_000;
@@ -16,6 +17,7 @@ export interface AgentConfig {
   totalBudget: bigint;
   usdcTokenId: string;
   baseRpcUrl: string;
+  ethereumRpcUrl: string;
 }
 
 const REQUIRED = [
@@ -43,10 +45,20 @@ export function loadAgentConfig(env: Record<string, string | undefined>): AgentC
     totalBudget: usdc(env.AGENT_BUDGET_USDC || "0.20"),
     usdcTokenId: env.HEDERA_USDC_TOKEN_ID || TESTNET_USDC,
     baseRpcUrl: env.BASE_RPC_URL || "https://mainnet.base.org",
+    ethereumRpcUrl: env.ETHEREUM_RPC_URL || "https://ethereum-rpc.publicnode.com",
   };
 }
 
-export function parseGoalArgs(args: string[], sender: string): Goal {
+const ADDRESS_ATTEMPTS = 3;
+const CROSS_CHAIN_SLIPPAGE_BPS = 300;
+const SAME_CHAIN_SLIPPAGE_BPS = 50;
+
+/** Reads the instruction. Swapped funds go only to an address someone actually gave. */
+export async function resolveGoal(
+  args: string[],
+  sender: string,
+  ask: (question: string) => Promise<string>,
+): Promise<Goal> {
   const { values } = parseArgs({
     args,
     options: {
@@ -60,10 +72,25 @@ export function parseGoalArgs(args: string[], sender: string): Goal {
   if (!values.from) throw new Error("--from is required");
   if (!values.to) throw new Error("--to is required");
   if (!values.amount) throw new Error("--amount is required");
+  const { from, to, amount } = values;
+
+  let recipient = values.recipient?.trim();
+  if (recipient !== undefined && !isValidAddress(to, recipient)) {
+    throw new Error(`--recipient is not a valid receiving address for ${to}`);
+  }
+  const chain = parseAssetId(to).chain;
+  for (let attempt = 0; recipient === undefined && attempt < ADDRESS_ATTEMPTS; attempt++) {
+    const answer = (await ask(`Receiving address on ${chain}: `)).trim();
+    if (isValidAddress(to, answer)) recipient = answer;
+  }
+  if (recipient === undefined) throw new Error(`No valid receiving address for ${to}`);
+
+  const crossChain = parseAssetId(from).chain !== chain;
+  const defaultSlippage = crossChain ? CROSS_CHAIN_SLIPPAGE_BPS : SAME_CHAIN_SLIPPAGE_BPS;
   return {
-    from: { asset: values.from, amount: values.amount, address: sender },
-    to: { asset: values.to, address: values.recipient ?? sender },
-    slippageBps: Number(values["slippage-bps"] ?? 50),
+    from: { asset: from, amount, address: sender },
+    to: { asset: to, address: recipient },
+    slippageBps: Number(values["slippage-bps"] ?? defaultSlippage),
     refundAddress: sender,
   };
 }

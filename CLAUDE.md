@@ -110,8 +110,9 @@ Key dependencies: `@x402/hedera`, `@hiero-ledger/sdk`, `@arkiv-network/sdk`, `no
 - `pnpm typecheck`: type-check every package
 - `pnpm check:venues`: real quotes from the live venues, spends nothing
 - `pnpm setup:topic`: create the HCS audit topic
+- `pnpm setup:usdc`: associate testnet USDC with the fee and agent accounts
 - `pnpm --filter @crossfare/api start`: run the API
-- `pnpm --filter @crossfare/agent start --from base:usdc --to base:eth --amount 1`: run the agent; swaps stay off unless `AGENT_ALLOW_LIVE_SWAPS=true`
+- `pnpm --filter @crossfare/agent start --from eth:usdc --to base:eth --amount 5`: run the agent, which asks for the receiving address unless given `--recipient`; swaps stay off unless `AGENT_ALLOW_LIVE_SWAPS=true`
 
 Keep `AI_USAGE.md` and `docs/prompts.md` current: add each new developer prompt, and record any manual code change.
 

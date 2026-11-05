@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { loadAgentConfig, parseGoalArgs } from "./config.ts";
+import { describe, expect, it, vi } from "vitest";
+import { loadAgentConfig, resolveGoal } from "./config.ts";
 
 const env = {
   AGENT_HEDERA_ACCOUNT: "0.0.5",
@@ -32,26 +32,53 @@ describe("loadAgentConfig", () => {
   });
 });
 
-describe("parseGoalArgs", () => {
-  it("defaults the recipient and refund address to the sender", () => {
-    expect(parseGoalArgs(["--from", "base:usdc", "--to", "base:eth", "--amount", "1"], "0xme")).toEqual({
-      from: { asset: "base:usdc", amount: "1", address: "0xme" },
-      to: { asset: "base:eth", address: "0xme" },
-      slippageBps: 50,
-      refundAddress: "0xme",
+describe("resolveGoal", () => {
+  const SENDER = "0xC9bebBA9f481b12cE6f3EA54c4B182c9636ec421";
+  const RECEIVER = "0x6dF69A2C97F8cFcBe5a04891ae0122942b8C24D1";
+  const swap = ["--from", "eth:usdc", "--to", "base:eth", "--amount", "20"];
+  const never = () => Promise.reject(new Error("should not ask"));
+
+  it("asks for the receiving address and never assumes its own", async () => {
+    const ask = vi.fn(async () => RECEIVER);
+    const goal = await resolveGoal(swap, SENDER, ask);
+    expect(ask).toHaveBeenCalledWith(expect.stringMatching(/receiving address on base/i));
+    expect(goal).toEqual({
+      from: { asset: "eth:usdc", amount: "20", address: SENDER },
+      to: { asset: "base:eth", address: RECEIVER },
+      slippageBps: 300,
+      refundAddress: SENDER,
     });
   });
 
-  it("takes a recipient and slippage", () => {
-    const goal = parseGoalArgs(
-      ["--from", "base:eth", "--to", "btc:btc", "--amount", "0.01", "--recipient", "bc1q", "--slippage-bps", "300"],
-      "0xme",
-    );
-    expect(goal.to.address).toBe("bc1q");
-    expect(goal.slippageBps).toBe(300);
+  it("asks again after an address that doesn't fit the chain", async () => {
+    const ask = vi.fn<() => Promise<string>>().mockResolvedValueOnce("bc1qwrongchain").mockResolvedValueOnce(RECEIVER);
+    const goal = await resolveGoal(swap, SENDER, ask);
+    expect(ask).toHaveBeenCalledTimes(2);
+    expect(goal.to.address).toBe(RECEIVER);
   });
 
-  it("requires a pair and amount", () => {
-    expect(() => parseGoalArgs(["--from", "base:eth"], "0xme")).toThrow(/--to/);
+  it("gives up after three bad answers, without guessing", async () => {
+    const ask = vi.fn(async () => "nope");
+    await expect(resolveGoal(swap, SENDER, ask)).rejects.toThrow(/receiving address/);
+    expect(ask).toHaveBeenCalledTimes(3);
+  });
+
+  it("takes a receiving address from the command line without asking", async () => {
+    const goal = await resolveGoal([...swap, "--recipient", RECEIVER], SENDER, never);
+    expect(goal.to.address).toBe(RECEIVER);
+  });
+
+  it("refuses a command-line address that doesn't fit the chain", async () => {
+    await expect(resolveGoal([...swap, "--recipient", "bc1qwrongchain"], SENDER, never)).rejects.toThrow(/receiving address/);
+  });
+
+  it("uses tighter default slippage on the same chain, and honours an explicit value", async () => {
+    const same = ["--from", "base:usdc", "--to", "base:eth", "--amount", "1", "--recipient", RECEIVER];
+    expect((await resolveGoal(same, SENDER, never)).slippageBps).toBe(50);
+    expect((await resolveGoal([...same, "--slippage-bps", "100"], SENDER, never)).slippageBps).toBe(100);
+  });
+
+  it("requires a pair and amount", async () => {
+    await expect(resolveGoal(["--from", "base:eth"], SENDER, never)).rejects.toThrow(/--to/);
   });
 });

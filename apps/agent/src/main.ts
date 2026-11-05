@@ -1,3 +1,4 @@
+import { createInterface } from "node:readline/promises";
 import { createPublicClient as createArkivReader } from "@arkiv-network/sdk";
 import { rabdi } from "@arkiv-network/sdk/chains";
 import { x402Client } from "@x402/core/client";
@@ -6,16 +7,28 @@ import { createClientHederaSigner } from "@x402/hedera";
 import { ExactHederaScheme } from "@x402/hedera/exact/client";
 import { createPublicClient, createWalletClient, hexToString, http, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { base } from "viem/chains";
 import { QuoteSchema } from "@crossfare/core/arkiv-schema";
-import { loadAgentConfig, parseGoalArgs } from "./config.ts";
+import { chainFor } from "./chains.ts";
+import { loadAgentConfig, resolveGoal } from "./config.ts";
 import { createSpendPolicy, type Charge } from "./policy.ts";
 import { runAgent, type AgentTransaction } from "./run.ts";
 import { parseHederaKey } from "@crossfare/core/hedera-key";
 
 const config = loadAgentConfig(process.env);
 const account = privateKeyToAccount(config.evmPrivateKey);
-const goal = parseGoalArgs(process.argv.slice(2), account.address);
+
+/** Asks the owner in the terminal. With no terminal, the owner must pass --recipient. */
+async function askOwner(question: string): Promise<string> {
+  if (!process.stdin.isTTY) throw new Error("No terminal to ask in, so pass --recipient");
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await prompt.question(question);
+  } finally {
+    prompt.close();
+  }
+}
+
+const goal = await resolveGoal(process.argv.slice(2), account.address, askOwner);
 
 const policy = createSpendPolicy({
   perCallCap: config.perCallCap,
@@ -52,12 +65,11 @@ async function postPaid(path: string, body: unknown) {
 }
 
 const arkiv = createArkivReader({ chain: rabdi({ accessKey: config.arkivAccessKey }), transport: http() });
-const reader = createPublicClient({ chain: base, transport: http(config.baseRpcUrl) });
-const wallet = createWalletClient({ account, chain: base, transport: http(config.baseRpcUrl) });
-
 
 async function sendTransaction(transaction: AgentTransaction): Promise<string> {
-  if (transaction.chainId !== base.id) throw new Error(`Agent only signs on Base, not ${transaction.chainId}`);
+  const { chain, rpcUrl } = chainFor(transaction.chainId, { ethereum: config.ethereumRpcUrl, base: config.baseRpcUrl });
+  const wallet = createWalletClient({ account, chain, transport: http(rpcUrl) });
+  const reader = createPublicClient({ chain, transport: http(rpcUrl) });
   const hash = await wallet.sendTransaction({
     to: transaction.to as Hex,
     data: transaction.data as Hex,
