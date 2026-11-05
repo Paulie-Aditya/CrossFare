@@ -1,0 +1,21 @@
+# Runs the Crossfare API and UI. Install: see docs/deploy-ec2.md.
+[Unit]
+Description=Crossfare API and UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=crossfare
+WorkingDirectory=/opt/crossfare/apps/api
+ExecStart=/usr/bin/node --env-file=/etc/crossfare/crossfare.env src/main.ts
+Environment=NODE_ENV=production
+Restart=on-failure
+RestartSec=5
+StateDirectory=crossfare
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

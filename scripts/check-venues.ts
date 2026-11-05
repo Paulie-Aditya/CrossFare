@@ -11,6 +11,13 @@ const BTC_ADDRESS = "357a3So9CbsNfBBgFYACGvxxS6tMaDoa1P";
 
 const pairs: QuoteRequest[] = [
   {
+    from: { asset: "eth:usdc", amount: "5", address: ADDRESS },
+    to: { asset: "base:eth", address: ADDRESS },
+    mode: "exact_in",
+    slippageBps: 300,
+    refundAddress: ADDRESS,
+  },
+  {
     from: { asset: "base:usdc", amount: "5", address: ADDRESS },
     to: { asset: "base:eth", address: ADDRESS },
     mode: "exact_in",

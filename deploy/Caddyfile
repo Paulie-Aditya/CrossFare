@@ -1,0 +1,5 @@
+# Serves Crossfare over HTTPS, with a certificate Caddy obtains and renews.
+# Replace the name below with your domain, or with <elastic-ip>.sslip.io if you have none.
+crossfare.example.com {
+	reverse_proxy 127.0.0.1:8787
+}
