@@ -6,6 +6,9 @@ import {
   type FetchLike,
   type PreparedSwap,
   type QuoteRequest,
+  type SwapStatus,
+  type TrackInput,
+  type TrackResult,
   type UnsignedTransaction,
   type Venue,
 } from "./types.ts";
@@ -14,15 +17,6 @@ const BASE_URL = "https://api.swapkit.dev";
 const VENUE = "swapkit";
 /** SwapKit caches a quote's route for 5 minutes. */
 const QUOTE_TTL_MS = 5 * 60_000;
-
-export type SwapStatus =
-  | "awaiting_deposit"
-  | "confirming"
-  | "exchanging"
-  | "completed"
-  | "refunded"
-  | "failed"
-  | "expired";
 
 const TRACK_STATUS: Record<string, SwapStatus> = {
   not_started: "awaiting_deposit",
@@ -69,6 +63,13 @@ interface ApiSwap {
   memo?: string;
   expiration?: string;
   meta?: { depositChannelExpiration?: number };
+}
+
+interface ApiTrack {
+  status: string;
+  fromAddress?: string;
+  toAmount?: string;
+  legs?: { hash?: string }[];
 }
 
 export interface SwapKitOptions {
@@ -180,6 +181,43 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
           amount: swap.sellAmount ?? request.from.amount,
           ...(Number.isFinite(deadline) ? { expiresAt: new Date(deadline * 1000).toISOString() } : {}),
         },
+      };
+    },
+
+    async track({ route, request, prepared, txHashes }: TrackInput): Promise<TrackResult> {
+      const { routeId } = route.venueData as { routeId: string };
+      const hash = txHashes.at(-1);
+      const chainId = prepared.transactions.at(-1)?.chainId;
+
+      let body: Record<string, string>;
+      if (prepared.deposit) {
+        body = { depositAddress: prepared.deposit.address };
+      } else if (hash && chainId) {
+        body = { hash, chainId: String(chainId), routeId };
+      } else {
+        return { status: "awaiting_deposit" };
+      }
+
+      const response = await call("/track", body);
+      // SwapKit documents a 404 right after broadcast and a 202 as "keep polling".
+      if (response.status === 404 || response.status === 202) return { status: "confirming" };
+      if (!response.ok) {
+        throw new VenueError(VENUE, response.status, `/track returned ${response.status}`);
+      }
+
+      const tracked = (await response.json()) as ApiTrack;
+      // Anyone can submit a hash, so it only counts if this swap's sender sent it.
+      const sender = tracked.fromAddress?.toLowerCase();
+      if (hash && sender && sender !== request.from.address.toLowerCase()) {
+        return { status: "confirming" };
+      }
+
+      const status = mapTrackStatus(tracked.status);
+      const legHashes = (tracked.legs ?? []).flatMap((leg) => (leg.hash ? [leg.hash] : []));
+      return {
+        status,
+        ...(status === "completed" && tracked.toAmount ? { amountReceived: tracked.toAmount } : {}),
+        ...(legHashes.length ? { txHashes: legHashes } : {}),
       };
     },
   };

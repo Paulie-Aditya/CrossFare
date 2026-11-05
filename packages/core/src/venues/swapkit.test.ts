@@ -254,3 +254,85 @@ describe("mapTrackStatus", () => {
     expect(mapTrackStatus(input)).toBe(expected);
   });
 });
+
+describe("swapkit track", () => {
+  const route = {
+    venue: "swapkit",
+    from: "base:eth",
+    to: "btc:btc",
+    amountIn: "1",
+    amountOut: "1",
+    minAmountOut: "1",
+    fees: {},
+    etaSeconds: 1,
+    validUntil: "",
+    venueData: { routeId: "route-1" },
+  };
+  const input = {
+    route,
+    request,
+    prepared: { transactions: [{ kind: "swap" as const, chainId: 8453, to: "0xv", data: "0x", value: "0x1" }] },
+    txHashes: ["0xhash"],
+    venueSwapId: "swap-1",
+  };
+
+  it("tracks an EVM source by hash, chain and route", async () => {
+    const fetch = fakeFetch({ "/track": () => json({ status: "swapping", fromAddress: AGENT }) });
+    expect(await venue(fetch).track!(input)).toEqual({ status: "exchanging" });
+    expect(fetch.mock.calls[0]![0]).toBe("https://api.swapkit.dev/track");
+    expect(JSON.parse(fetch.mock.calls[0]![1]?.body as string)).toEqual({
+      hash: "0xhash",
+      chainId: "8453",
+      routeId: "route-1",
+    });
+  });
+
+  it("tracks a deposit by address", async () => {
+    const fetch = fakeFetch({ "/track": () => json({ status: "not_started" }) });
+    const result = await venue(fetch).track!({
+      ...input,
+      txHashes: [],
+      prepared: { transactions: [], deposit: { asset: "btc:btc", address: "bc1qvault", amount: "0.1" } },
+    });
+    expect(result.status).toBe("awaiting_deposit");
+    expect(JSON.parse(fetch.mock.calls[0]![1]?.body as string)).toEqual({ depositAddress: "bc1qvault" });
+  });
+
+  it("waits for a hash on an EVM source without calling SwapKit", async () => {
+    const fetch = fakeFetch({});
+    expect(await venue(fetch).track!({ ...input, txHashes: [] })).toEqual({ status: "awaiting_deposit" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("treats a 404 right after broadcast as still confirming", async () => {
+    const fetch = fakeFetch({ "/track": () => json({ error: "txNotFound" }, 404) });
+    expect(await venue(fetch).track!(input)).toEqual({ status: "confirming" });
+  });
+
+  it("treats a 202 as still confirming", async () => {
+    const fetch = fakeFetch({ "/track": () => json({}, 202) });
+    expect(await venue(fetch).track!(input)).toEqual({ status: "confirming" });
+  });
+
+  it("reports the amount received and the destination hash when complete", async () => {
+    const fetch = fakeFetch({
+      "/track": () =>
+        json({
+          status: "completed",
+          fromAddress: AGENT,
+          toAmount: "0.00031",
+          legs: [{ hash: "0xhash" }, { hash: "btcOutHash" }],
+        }),
+    });
+    expect(await venue(fetch).track!(input)).toEqual({
+      status: "completed",
+      amountReceived: "0.00031",
+      txHashes: ["0xhash", "btcOutHash"],
+    });
+  });
+
+  it("ignores a hash sent from another address", async () => {
+    const fetch = fakeFetch({ "/track": () => json({ status: "completed", fromAddress: "0xother" }) });
+    expect(await venue(fetch).track!(input)).toEqual({ status: "confirming" });
+  });
+});

@@ -33,6 +33,30 @@ export interface PreparedSwap {
   deposit?: Deposit;
 }
 
+export type SwapStatus =
+  | "awaiting_deposit"
+  | "confirming"
+  | "exchanging"
+  | "completed"
+  | "refunded"
+  | "failed"
+  | "expired";
+
+export interface TrackInput {
+  route: Route;
+  request: QuoteRequest;
+  prepared: PreparedSwap;
+  txHashes: string[];
+  venueSwapId: string | null;
+}
+
+export interface TrackResult {
+  status: SwapStatus;
+  /** Decimal amount actually delivered, once known. */
+  amountReceived?: string;
+  txHashes?: string[];
+}
+
 /** A venue answered with an error that isn't simply "no route for this pair". */
 export class VenueError extends Error {
   readonly venue: string;
@@ -52,6 +76,7 @@ export interface Venue {
   /** Returns no routes when the venue can't serve the pair; throws VenueError on failure. */
   quote(request: QuoteRequest): Promise<Route[]>;
   prepare(route: Route, request: QuoteRequest): Promise<PreparedSwap>;
+  track(input: TrackInput): Promise<TrackResult>;
 }
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;

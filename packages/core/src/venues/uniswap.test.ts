@@ -224,3 +224,85 @@ describe("uniswap prepare", () => {
     );
   });
 });
+
+describe("uniswap track", () => {
+  const WETH = "0x4200000000000000000000000000000000000006";
+  const pad = (address: string) => `0x${address.slice(2).toLowerCase().padStart(64, "0")}`;
+  const TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+  const WITHDRAWAL = "0x7fcf532c15f0a6db0bd6d0e038bea71d30d808c7d98cb3bf7268a95bf5081b65";
+  const prepared = {
+    transactions: [{ kind: "swap" as const, chainId: 8453, to: "0xRouter", data: "0xswap", value: "0x0" }],
+  };
+  const route = {
+    venue: "uniswap",
+    from: "base:usdc",
+    to: "base:eth",
+    amountIn: "1",
+    amountOut: "1",
+    minAmountOut: "1",
+    fees: {},
+    etaSeconds: 1,
+    validUntil: "",
+    venueData: null,
+  };
+
+  function tracked(receipt: unknown) {
+    const getReceipt = vi.fn(async () => receipt);
+    const uniswap = createUniswapVenue({ apiKey: "k", fetch: fakeFetch({}), getReceipt: getReceipt as never });
+    return { uniswap, getReceipt };
+  }
+
+  const input = { route, request, prepared, txHashes: ["0xhash"], venueSwapId: null };
+
+  it("waits for a hash before reporting progress", async () => {
+    const { uniswap } = tracked(null);
+    expect(await uniswap.track!({ ...input, txHashes: [] })).toEqual({ status: "awaiting_deposit" });
+  });
+
+  it("stays confirming until a receipt exists", async () => {
+    const { uniswap, getReceipt } = tracked(null);
+    expect(await uniswap.track!(input)).toEqual({ status: "confirming" });
+    expect(getReceipt).toHaveBeenCalledWith(8453, "0xhash");
+  });
+
+  it("reports failure on a reverted swap", async () => {
+    const { uniswap } = tracked({ status: "reverted", from: AGENT, to: "0xrouter", logs: [] });
+    expect((await uniswap.track!(input)).status).toBe("failed");
+  });
+
+  it("ignores a transaction from another sender", async () => {
+    const { uniswap } = tracked({ status: "success", from: "0xsomeoneelse", to: "0xrouter", logs: [] });
+    expect((await uniswap.track!(input)).status).toBe("confirming");
+  });
+
+  it("ignores a transaction to another contract", async () => {
+    const { uniswap } = tracked({ status: "success", from: AGENT, to: "0xelsewhere", logs: [] });
+    expect((await uniswap.track!(input)).status).toBe("confirming");
+  });
+
+  it("reads native output from the WETH withdrawal", async () => {
+    const { uniswap } = tracked({
+      status: "success",
+      from: AGENT,
+      to: "0xrouter",
+      logs: [{ address: WETH, topics: [WITHDRAWAL, pad("0xrouter0000000000000000000000000000000000")], data: "0x03e8" }],
+    });
+    expect(await uniswap.track!(input)).toEqual({ status: "completed", amountReceived: "0.000000000000001" });
+  });
+
+  it("reads token output from transfers to the recipient only", async () => {
+    const tokenRequest: QuoteRequest = { ...request, to: { asset: "base:usdc", address: AGENT } };
+    const { uniswap } = tracked({
+      status: "success",
+      from: AGENT,
+      to: "0xrouter",
+      logs: [
+        { address: USDC, topics: [TRANSFER, pad(AGENT), pad("0x0000000000000000000000000000000000000abc")], data: "0x01" },
+        { address: USDC, topics: [TRANSFER, pad("0x0000000000000000000000000000000000000abc"), pad(AGENT)], data: "0x1e8480" },
+      ],
+    });
+    expect(
+      await uniswap.track!({ ...input, request: tokenRequest, route: { ...route, to: "base:usdc" } }),
+    ).toEqual({ status: "completed", amountReceived: "2" });
+  });
+});
