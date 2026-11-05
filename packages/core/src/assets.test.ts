@@ -32,6 +32,16 @@ describe("getAsset", () => {
     expect(getAsset("btc:btc").uniswap).toBeUndefined();
   });
 
+  it.each([
+    ["base:eth", "8453"],
+    ["eth:usdc", "1"],
+    ["btc:btc", "bitcoin"],
+    ["sol:sol", "solana"],
+    ["xrp:xrp", "ripple"],
+  ])("gives %s the SwapKit chain %s", (id, chain) => {
+    expect(getAsset(id).swapkitChain).toBe(chain);
+  });
+
   it("throws on an unknown asset", () => {
     expect(() => getAsset("base:doge")).toThrow(/unsupported asset/i);
   });

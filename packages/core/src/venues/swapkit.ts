@@ -222,3 +222,30 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
     },
   };
 }
+
+export interface ScreenedAddress {
+  address: string;
+  asset: string;
+}
+
+/** Resolves true if any address is flagged. Throws rather than pass an unchecked address. */
+export type ScreenAddresses = (addresses: ScreenedAddress[]) => Promise<boolean>;
+
+/** Sanctions screening through SwapKit, which its docs say to run when a user intends to swap. */
+export function createSwapKitScreen(options: { apiKey: string; fetch?: FetchLike }): ScreenAddresses {
+  const fetchImpl = options.fetch ?? globalThis.fetch;
+  return async (addresses) => {
+    const response = await fetchImpl(`${BASE_URL}/screen`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": options.apiKey },
+      body: JSON.stringify({
+        addresses: addresses.map((entry) => entry.address),
+        chains: addresses.map((entry) => getAsset(entry.asset).swapkitChain),
+      }),
+    });
+    if (!response.ok) throw new VenueError(VENUE, response.status, `/screen returned ${response.status}`);
+    const { isRisky } = (await response.json()) as { isRisky?: unknown };
+    if (typeof isRisky !== "boolean") throw new VenueError(VENUE, 502, "/screen gave no verdict");
+    return isRisky;
+  };
+}

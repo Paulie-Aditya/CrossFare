@@ -15,6 +15,8 @@ export interface Asset {
   uniswap?: UniswapToken;
   /** SwapKit identifier: `CHAIN.ASSET` or `CHAIN.ASSET-contract`. */
   swapkit: string;
+  /** The chain name SwapKit's screening endpoint expects. */
+  swapkitChain: string;
 }
 
 const NATIVE_TOKEN = "0x0000000000000000000000000000000000000000";
@@ -29,6 +31,7 @@ const ASSETS: readonly Asset[] = [
     decimals: 18,
     uniswap: { chainId: BASE_CHAIN_ID, address: NATIVE_TOKEN },
     swapkit: "BASE.ETH",
+    swapkitChain: "8453",
   },
   {
     id: "base:usdc",
@@ -37,6 +40,7 @@ const ASSETS: readonly Asset[] = [
     decimals: 6,
     uniswap: { chainId: BASE_CHAIN_ID, address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
     swapkit: "BASE.USDC-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+    swapkitChain: "8453",
   },
   {
     id: "eth:eth",
@@ -45,6 +49,7 @@ const ASSETS: readonly Asset[] = [
     decimals: 18,
     uniswap: { chainId: ETHEREUM_CHAIN_ID, address: NATIVE_TOKEN },
     swapkit: "ETH.ETH",
+    swapkitChain: "1",
   },
   {
     id: "eth:usdc",
@@ -53,10 +58,11 @@ const ASSETS: readonly Asset[] = [
     decimals: 6,
     uniswap: { chainId: ETHEREUM_CHAIN_ID, address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" },
     swapkit: "ETH.USDC-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    swapkitChain: "1",
   },
-  { id: "btc:btc", chain: "btc", symbol: "btc", decimals: 8, swapkit: "BTC.BTC" },
-  { id: "sol:sol", chain: "sol", symbol: "sol", decimals: 9, swapkit: "SOL.SOL" },
-  { id: "xrp:xrp", chain: "xrp", symbol: "xrp", decimals: 6, swapkit: "XRP.XRP" },
+  { id: "btc:btc", chain: "btc", symbol: "btc", decimals: 8, swapkit: "BTC.BTC", swapkitChain: "bitcoin" },
+  { id: "sol:sol", chain: "sol", symbol: "sol", decimals: 9, swapkit: "SOL.SOL", swapkitChain: "solana" },
+  { id: "xrp:xrp", chain: "xrp", symbol: "xrp", decimals: 6, swapkit: "XRP.XRP", swapkitChain: "ripple" },
 ];
 
 const BY_ID = new Map(ASSETS.map((asset) => [asset.id, asset]));

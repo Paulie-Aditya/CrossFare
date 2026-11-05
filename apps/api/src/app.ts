@@ -9,6 +9,7 @@ import {
   type PreparedSwap,
   type QuoteRequest,
   type Route,
+  type ScreenAddresses,
   type SwapStatus,
   type Venue,
 } from "@crossfare/core";
@@ -44,6 +45,8 @@ export interface AppDeps {
   payTo: string;
   /** The wallet that owns Crossfare's Arkiv records, so readers can check authorship. */
   arkivWriter?: string;
+  /** Sanctions screening. Runs before a swap is prepared; a failure blocks the swap. */
+  screen?: ScreenAddresses;
   now?: () => Date;
   newId?: (prefix: string) => string;
   /** How long a quote response waits for Arkiv before flagging the write as pending. */
@@ -211,8 +214,13 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get("/v1/quotes", async (c) => {
     const payer = c.req.query("payer");
-    if (!payer) return c.json({ error: "payer is required" }, 400);
-    return c.json({ quotes: await publisher.quotesByPayer(payer) });
+    try {
+      const quotes = payer ? await publisher.quotesByPayer(payer) : await publisher.recentQuotes();
+      return c.json({ quotes });
+    } catch (error) {
+      onError("arkiv read failed", error);
+      return c.json({ error: "arkiv_unavailable" }, 502);
+    }
   });
 
   app.post("/v1/swap", async (c) => {
@@ -243,6 +251,12 @@ export function createApp(deps: AppDeps): Hono {
             },
           };
         }
+
+        const flagged = await deps.screen?.([
+          { address: request.from.address, asset: request.from.asset },
+          { address: request.to.address, asset: request.to.asset },
+        ]);
+        if (flagged) return { status: 403, body: { error: "address_flagged" } };
 
         const prepared = await venue.prepare(fresh, request);
         const swapId = newId("s");

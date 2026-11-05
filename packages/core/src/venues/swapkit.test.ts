@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSwapKitVenue, mapTrackStatus } from "./swapkit.ts";
+import { createSwapKitScreen, createSwapKitVenue, mapTrackStatus } from "./swapkit.ts";
 import { VenueError, type FetchLike, type QuoteRequest } from "./types.ts";
 
 const AGENT = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
@@ -334,5 +334,42 @@ describe("swapkit track", () => {
   it("ignores a hash sent from another address", async () => {
     const fetch = fakeFetch({ "/track": () => json({ status: "completed", fromAddress: "0xother" }) });
     expect(await venue(fetch).track!(input)).toEqual({ status: "confirming" });
+  });
+});
+
+describe("swapkit screening", () => {
+  it("sends each address with its chain and reports the verdict", async () => {
+    const fetch = fakeFetch({ "/screen": () => json({ isRisky: true }) });
+    const screen = createSwapKitScreen({ apiKey: "test-key", fetch });
+    const risky = await screen([
+      { address: AGENT, asset: "base:eth" },
+      { address: BTC_ADDRESS, asset: "btc:btc" },
+    ]);
+    expect(risky).toBe(true);
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe("https://api.swapkit.dev/screen");
+    expect(new Headers(init?.headers).get("x-api-key")).toBe("test-key");
+    expect(JSON.parse(init?.body as string)).toEqual({
+      addresses: [AGENT, BTC_ADDRESS],
+      chains: ["8453", "bitcoin"],
+    });
+  });
+
+  it("reports a passing address", async () => {
+    const fetch = fakeFetch({ "/screen": () => json({ isRisky: false }) });
+    const screen = createSwapKitScreen({ apiKey: "k", fetch });
+    expect(await screen([{ address: AGENT, asset: "base:eth" }])).toBe(false);
+  });
+
+  it("fails rather than passing when screening errors", async () => {
+    const fetch = fakeFetch({ "/screen": () => json({}, 500) });
+    const screen = createSwapKitScreen({ apiKey: "k", fetch });
+    await expect(screen([{ address: AGENT, asset: "base:eth" }])).rejects.toBeInstanceOf(VenueError);
+  });
+
+  it("fails rather than passing on an unexpected answer", async () => {
+    const fetch = fakeFetch({ "/screen": () => json({ ok: true }) });
+    const screen = createSwapKitScreen({ apiKey: "k", fetch });
+    await expect(screen([{ address: AGENT, asset: "base:eth" }])).rejects.toBeInstanceOf(VenueError);
   });
 });

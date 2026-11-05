@@ -53,6 +53,7 @@ beforeEach(() => {
     publishQuote: vi.fn(async (quote: { quoteId: string }) => `0xentity-${quote.quoteId}`),
     updateQuote: vi.fn(async () => {}),
     quotesByPayer: vi.fn(async () => [{ quoteId: "q_x" }]),
+    recentQuotes: vi.fn(async () => []),
   };
   let settled = 0;
   settle = vi.fn(async () => ({
@@ -255,8 +256,15 @@ describe("GET /v1/quotes", () => {
     expect(publisher.quotesByPayer).toHaveBeenCalledWith("0.0.51234");
   });
 
-  it("requires a payer", async () => {
-    expect((await app([]).request("/v1/quotes")).status).toBe(400);
+  it("lists recent quotes when no payer is given", async () => {
+    publisher.recentQuotes!.mockResolvedValue([{ quoteId: "q_recent" }]);
+    const response = await app([]).request("/v1/quotes");
+    expect(await (response.json() as Promise<any>)).toEqual({ quotes: [{ quoteId: "q_recent" }] });
+  });
+
+  it("answers 502 when Arkiv can't be read", async () => {
+    publisher.recentQuotes!.mockRejectedValue(new Error("arkiv down"));
+    expect((await app([]).request("/v1/quotes")).status).toBe(502);
   });
 });
 
@@ -315,6 +323,45 @@ describe("POST /v1/swap", () => {
     await postSwap(target, quoteId);
     expect(venue.prepare.mock.calls[0]![0].venueData).toEqual({ quote: "fresh" });
     expect(venue.prepare.mock.calls[0]![1]).toMatchObject({ from: { address: AGENT } });
+  });
+
+  it("screens the sender and recipient before preparing the swap", async () => {
+    const screen = vi.fn(async () => false);
+    const venue = fakeVenue("uniswap", [validRoute()]);
+    const target = app([venue], { screen });
+    const quoted = await (await postQuote(target, quoteBody, { "payment-signature": "q" })).json() as any;
+    await postSwap(target, quoted.routes[0].quoteId);
+    expect(screen).toHaveBeenCalledWith([
+      { address: AGENT, asset: "base:usdc" },
+      { address: AGENT, asset: "base:eth" },
+    ]);
+  });
+
+  it("refuses a flagged address without settling", async () => {
+    const venue = fakeVenue("uniswap", [validRoute()]);
+    const target = app([venue], { screen: async () => true });
+    const quoted = await (await postQuote(target, quoteBody, { "payment-signature": "q" })).json() as any;
+    settle.mockClear();
+    const response = await postSwap(target, quoted.routes[0].quoteId);
+    expect(response.status).toBe(403);
+    expect(await (response.json() as Promise<any>)).toEqual({ error: "address_flagged" });
+    expect(venue.prepare).not.toHaveBeenCalled();
+    expect(settle).not.toHaveBeenCalled();
+  });
+
+  it("refuses the swap without settling when screening is unavailable", async () => {
+    const venue = fakeVenue("uniswap", [validRoute()]);
+    const target = app([venue], {
+      screen: async () => {
+        throw new Error("screen down");
+      },
+    });
+    const quoted = await (await postQuote(target, quoteBody, { "payment-signature": "q" })).json() as any;
+    settle.mockClear();
+    const response = await postSwap(target, quoted.routes[0].quoteId);
+    expect(response.status).toBe(502);
+    expect(venue.prepare).not.toHaveBeenCalled();
+    expect(settle).not.toHaveBeenCalled();
   });
 
   it("marks the Arkiv record as executing", async () => {
