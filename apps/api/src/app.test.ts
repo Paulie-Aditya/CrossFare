@@ -276,6 +276,28 @@ describe("GET /v1/quotes", () => {
   });
 });
 
+describe("address checks on POST /v1/quote", () => {
+  it.each([
+    ["receiving", { ...quoteBody, to: { asset: "btc:btc", address: AGENT } }],
+    ["sending", { ...quoteBody, from: { ...quoteBody.from, address: "not-an-address" } }],
+    ["refund", { ...quoteBody, refundAddress: "not-an-address" }],
+  ])("refuses a %s address that doesn't fit its chain, before any upstream call", async (_name, body) => {
+    const venue = fakeVenue("uniswap", [route("uniswap", "100")]);
+    const response = await postQuote(app([venue]), body, {});
+    expect(response.status).toBe(400);
+    expect(await (response.json() as Promise<any>)).toMatchObject({ error: expect.stringContaining("address") });
+    expect(venue.quote).not.toHaveBeenCalled();
+  });
+
+  it("accepts a receiving address different from the sender", async () => {
+    const venue = fakeVenue("uniswap", [route("uniswap", "100")]);
+    const other = "0x6dF69A2C97F8cFcBe5a04891ae0122942b8C24D1";
+    const response = await postQuote(app([venue]), { ...quoteBody, to: { asset: "base:eth", address: other } });
+    expect(response.status).toBe(200);
+    expect(venue.quote.mock.calls[0]![0].to.address).toBe(other);
+  });
+});
+
 describe("POST /v1/swap when a price is set", () => {
   const validRoute = (min = "1000000") => route("uniswap", min, { venueData: { quote: "original" } });
 
@@ -617,6 +639,24 @@ describe("swap status", () => {
       amountReceived: "0.5",
       txHashes: ["0x1", "0x2"],
     });
+  });
+
+  it("asks the venue at most once per interval, to respect its rate limit", async () => {
+    const { target, swapId, track } = await swapped();
+    await target.request(`/v1/swaps/${swapId}`);
+    await target.request(`/v1/swaps/${swapId}`);
+    expect(track).toHaveBeenCalledTimes(1);
+    currentTime = new Date(NOW.getTime() + 15_000);
+    await target.request(`/v1/swaps/${swapId}`);
+    expect(track).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks the venue straight away after a new transaction hash", async () => {
+    const { target, swapId, track } = await swapped();
+    await target.request(`/v1/swaps/${swapId}`);
+    await submit(target, swapId, "0xabc");
+    await target.request(`/v1/swaps/${swapId}`);
+    expect(track).toHaveBeenCalledTimes(2);
   });
 
   it("stops polling the venue and rewriting Arkiv once finished", async () => {

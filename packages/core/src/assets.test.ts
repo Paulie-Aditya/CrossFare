@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAsset, listAssets, parseAssetId, toBaseUnits } from "./assets.ts";
+import { getAsset, isValidAddress, listAssets, parseAssetId, toBaseUnits } from "./assets.ts";
 
 describe("parseAssetId", () => {
   it("splits a chain:symbol id", () => {
@@ -69,5 +69,29 @@ describe("toBaseUnits", () => {
 
   it.each(["", "abc", "-1", "1.2.3"])("rejects %j", (value) => {
     expect(() => toBaseUnits(value, 6)).toThrow(/invalid amount/i);
+  });
+});
+
+describe("isValidAddress", () => {
+  it.each([
+    ["base:eth", "0x6dF69A2C97F8cFcBe5a04891ae0122942b8C24D1"],
+    ["eth:usdc", "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"],
+    ["btc:btc", "357a3So9CbsNfBBgFYACGvxxS6tMaDoa1P"],
+    ["btc:btc", "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"],
+    ["sol:sol", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"],
+    ["xrp:xrp", "rEb8TK3gBgk5auZkwc6sHnwrGVJH8DuaLh"],
+  ])("accepts a %s address", (asset, address) => {
+    expect(isValidAddress(asset, address)).toBe(true);
+  });
+
+  it.each([
+    ["base:eth", "357a3So9CbsNfBBgFYACGvxxS6tMaDoa1P"],
+    ["base:eth", "0x123"],
+    ["btc:btc", "0x6dF69A2C97F8cFcBe5a04891ae0122942b8C24D1"],
+    ["sol:sol", "0x6dF69A2C97F8cFcBe5a04891ae0122942b8C24D1"],
+    ["xrp:xrp", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"],
+    ["base:eth", ""],
+  ])("rejects %s address %s", (asset, address) => {
+    expect(isValidAddress(asset, address)).toBe(false);
   });
 });

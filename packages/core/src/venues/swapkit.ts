@@ -4,6 +4,7 @@ import {
   VenueError,
   toHexValue,
   type FetchLike,
+  type Deposit,
   type PreparedSwap,
   type QuoteRequest,
   type SwapStatus,
@@ -45,6 +46,7 @@ interface ApiRoute {
   expectedBuyAmountMaxSlippage: string;
   fees?: ApiFee[];
   estimatedTime?: { total?: number };
+  txHint?: string;
 }
 
 interface ApiEvmTx {
@@ -62,7 +64,8 @@ interface ApiSwap {
   inboundAddress?: string;
   memo?: string;
   expiration?: string;
-  meta?: { depositChannelExpiration?: number };
+  txHint?: string;
+  meta?: { depositChannelExpiration?: number; providerDepositChannelId?: string };
 }
 
 interface ApiTrack {
@@ -129,6 +132,7 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
         ),
         etaSeconds: route.estimatedTime?.total ?? 0,
         validUntil,
+        depositable: route.txHint === "simpleTransfer",
         venueData: { routeId: route.routeId },
       }));
     },
@@ -147,6 +151,19 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
       const swap = (await response.json()) as ApiSwap;
       const source = getAsset(route.from);
 
+      const depositDetails = (address: string): Deposit => {
+        const deadline = swap.meta?.depositChannelExpiration ?? Number(swap.expiration ?? NaN);
+        const channelId = swap.meta?.providerDepositChannelId;
+        return {
+          asset: source.id,
+          address,
+          ...(swap.memo ? { memo: swap.memo } : {}),
+          amount: swap.sellAmount ?? request.from.amount,
+          ...(Number.isFinite(deadline) ? { expiresAt: new Date(deadline * 1000).toISOString() } : {}),
+          ...(channelId ? { channelId } : {}),
+        };
+      };
+
       if (source.uniswap) {
         const chainId = source.uniswap.chainId;
         const toUnsigned = (tx: ApiEvmTx, kind: UnsignedTransaction["kind"]): UnsignedTransaction => ({
@@ -159,29 +176,21 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
         if (!swap.tx || typeof swap.tx === "string") {
           throw new VenueError(VENUE, 502, "/v3/swap returned no EVM transaction");
         }
+        const inbound = swap.inboundAddress ?? swap.targetAddress;
         return {
           venueSwapId: swap.swapId,
           transactions: [
             ...(swap.approvalTx ? [toUnsigned(swap.approvalTx, "approval")] : []),
             toUnsigned(swap.tx, "swap"),
           ],
+          // A plain transfer can be sent from any wallet software, with no connection to this page.
+          ...(swap.txHint === "simpleTransfer" && inbound ? { deposit: depositDetails(inbound) } : {}),
         };
       }
 
       const address = swap.targetAddress ?? swap.inboundAddress;
       if (!address) throw new VenueError(VENUE, 502, "/v3/swap returned no deposit address");
-      const deadline = swap.meta?.depositChannelExpiration ?? Number(swap.expiration ?? NaN);
-      return {
-        venueSwapId: swap.swapId,
-        transactions: [],
-        deposit: {
-          asset: source.id,
-          address,
-          ...(swap.memo ? { memo: swap.memo } : {}),
-          amount: swap.sellAmount ?? request.from.amount,
-          ...(Number.isFinite(deadline) ? { expiresAt: new Date(deadline * 1000).toISOString() } : {}),
-        },
-      };
+      return { venueSwapId: swap.swapId, transactions: [], deposit: depositDetails(address) };
     },
 
     async track({ route, request, prepared, txHashes }: TrackInput): Promise<TrackResult> {
@@ -191,7 +200,8 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
 
       let body: Record<string, string>;
       if (prepared.deposit) {
-        body = { depositAddress: prepared.deposit.address };
+        const { channelId, address } = prepared.deposit;
+        body = channelId ? { depositChannelId: channelId } : { depositAddress: address };
       } else if (hash && chainId) {
         body = { hash, chainId: String(chainId), routeId };
       } else {
@@ -200,7 +210,9 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
 
       const response = await call("/track", body);
       // SwapKit documents a 404 right after broadcast and a 202 as "keep polling".
-      if (response.status === 404 || response.status === 202) return { status: "confirming" };
+      if (response.status === 404 || response.status === 202) {
+        return { status: hash ? "confirming" : "awaiting_deposit" };
+      }
       if (!response.ok) {
         throw new VenueError(VENUE, response.status, `/track returned ${response.status}`);
       }
@@ -208,12 +220,12 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
       const tracked = (await response.json()) as ApiTrack;
       // Anyone can submit a hash, so it only counts if this swap's sender sent it.
       const sender = tracked.fromAddress?.toLowerCase();
-      if (hash && sender && sender !== request.from.address.toLowerCase()) {
+      if (!prepared.deposit && hash && sender && sender !== request.from.address.toLowerCase()) {
         return { status: "confirming" };
       }
 
       const status = mapTrackStatus(tracked.status);
-      const legHashes = (tracked.legs ?? []).flatMap((leg) => (leg.hash ? [leg.hash] : []));
+      const legHashes = (tracked.legs ?? []).flatMap((leg) => (leg.hash && leg.hash !== "0x" ? [leg.hash] : []));
       return {
         status,
         ...(status === "completed" && tracked.toAmount ? { amountReceived: tracked.toAmount } : {}),

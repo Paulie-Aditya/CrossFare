@@ -31,7 +31,7 @@ const CHAIN_NAMES: Record<string, string> = {
   xrp: "XRP Ledger",
 };
 const EVM_CHAINS = ["base", "eth"];
-const POLL_MS = 5_000;
+const POLL_MS = 15_000;
 
 const assetLabel = (asset: AssetOption) => `${asset.symbol.toUpperCase()} on ${CHAIN_NAMES[asset.chain] ?? asset.chain}`;
 const symbolOf = (id: string) => id.split(":")[1]?.toUpperCase() ?? id;

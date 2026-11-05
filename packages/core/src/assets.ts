@@ -80,6 +80,21 @@ export function getAsset(id: AssetId): Asset {
   return asset;
 }
 
+const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const ADDRESS_FORMATS: Record<string, RegExp> = {
+  base: EVM_ADDRESS,
+  eth: EVM_ADDRESS,
+  btc: /^(bc1[a-z0-9]{25,62}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})$/,
+  sol: /^[1-9A-HJ-NP-Za-km-z]{32,44}$/,
+  xrp: /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/,
+};
+
+/** A format check only: it catches a wrong chain or a typo'd length, not every bad address. */
+export function isValidAddress(assetId: AssetId, address: string): boolean {
+  const format = ADDRESS_FORMATS[getAsset(assetId).chain];
+  return format ? format.test(address) : address.length > 0;
+}
+
 export function listAssets(): readonly Asset[] {
   return ASSETS;
 }

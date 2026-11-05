@@ -25,6 +25,8 @@ export interface Deposit {
   /** Decimal amount of the source asset to send. */
   amount: string;
   expiresAt?: string;
+  /** The provider's deposit channel, used to track a deposit with no known hash. */
+  channelId?: string;
 }
 
 export interface PreparedSwap {

@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import {
   fromBaseUnits,
   getAsset,
+  isValidAddress,
   listAssets,
   rankRoutes,
   toBaseUnits,
@@ -52,6 +53,8 @@ export interface AppDeps {
   screen?: ScreenAddresses;
   now?: () => Date;
   newId?: (prefix: string) => string;
+  /** The least time between status calls to a venue for one swap. */
+  trackIntervalMs?: number;
   /** How long a quote response waits for Arkiv before flagging the write as pending. */
   publishTimeoutMs?: number;
   onError?: (context: string, error: unknown) => void;
@@ -81,6 +84,11 @@ function parseQuoteRequest(input: unknown): { request: QuoteRequest } | { status
     getAsset(from.asset);
     getAsset(to.asset);
     if (toBaseUnits(from.amount, decimals) <= 0n) return { status: 400, error: "amount must be positive" };
+    if (!isValidAddress(from.asset, from.address)) return { status: 400, error: "invalid sending address" };
+    if (!isValidAddress(to.asset, to.address)) return { status: 400, error: "invalid receiving address" };
+    if (body?.refundAddress && !isValidAddress(from.asset, body.refundAddress)) {
+      return { status: 400, error: "invalid refund address" };
+    }
   } catch (error) {
     return { status: 422, error: (error as Error).message };
   }
@@ -105,6 +113,7 @@ function humanRoute(route: Route) {
     fees: route.fees,
     etaSeconds: route.etaSeconds,
     validUntil: route.validUntil,
+    depositable: route.depositable ?? false,
   };
 }
 
@@ -123,6 +132,9 @@ export function createApp(deps: AppDeps): Hono {
   const now = deps.now ?? (() => new Date());
   const newId = deps.newId ?? ((prefix: string) => `${prefix}_${randomUUID().replaceAll("-", "").slice(0, 16)}`);
   const publishTimeoutMs = deps.publishTimeoutMs ?? 8_000;
+  // SwapKit gives a new key 10 requests a minute per service, however often callers poll.
+  const trackIntervalMs = deps.trackIntervalMs ?? 15_000;
+  const lastTracked = new Map<string, number>();
   const onError = deps.onError ?? ((context, error) => console.error(context, error));
   const guard = createPaymentGuard({ gateway: deps.gateway, store, audit: deps.audit, onError });
   const swapEndpoint: PricedEndpoint = { ...SWAP_ENDPOINT, priceUsd: deps.swapPriceUsd || SWAP_ENDPOINT.priceUsd };
@@ -337,7 +349,10 @@ export function createApp(deps: AppDeps): Hono {
     const body = (await c.req.json().catch(() => null)) as { hash?: unknown } | null;
     if (typeof body?.hash !== "string" || !body.hash) return c.json({ error: "hash is required" }, 400);
     const known = swap.txHashes ?? [];
-    if (!known.includes(body.hash)) store.updateSwap(swap.id, { txHashes: [...known, body.hash] });
+    if (!known.includes(body.hash)) {
+      store.updateSwap(swap.id, { txHashes: [...known, body.hash] });
+      lastTracked.delete(swap.id);
+    }
     return c.json({ swapId: swap.id, txHashes: store.getSwap(swap.id)?.txHashes });
   });
 
@@ -347,7 +362,11 @@ export function createApp(deps: AppDeps): Hono {
     const quote = store.getQuote(swap.quoteId);
     if (!quote) return c.json({ error: "unknown_quote" }, 404);
 
-    if (!TERMINAL.includes(swap.status)) await refreshSwap(swap.id, quote);
+    const due = now().getTime() - (lastTracked.get(swap.id) ?? -Infinity) >= trackIntervalMs;
+    if (!TERMINAL.includes(swap.status) && due) {
+      lastTracked.set(swap.id, now().getTime());
+      await refreshSwap(swap.id, quote);
+    }
 
     const current = store.getSwap(swap.id)!;
     return c.json({

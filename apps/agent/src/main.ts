@@ -95,7 +95,7 @@ const result = await runAgent(
     log: (line) => console.log(line),
     allowLiveSwaps: config.allowLiveSwaps,
     allowedPayTo: config.allowedPayTo,
-    pollIntervalMs: 5_000,
+    pollIntervalMs: 15_000,
     maxPolls: 240,
   },
   goal,

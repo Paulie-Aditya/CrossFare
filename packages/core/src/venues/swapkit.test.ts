@@ -241,6 +241,103 @@ describe("swapkit prepare", () => {
   });
 });
 
+describe("swapkit deposit routes from an EVM wallet", () => {
+  const evmRequest: QuoteRequest = {
+    from: { asset: "eth:usdc", amount: "20", address: AGENT },
+    to: { asset: "base:eth", address: "0x6dF69A2C97F8cFcBe5a04891ae0122942b8C24D1" },
+    mode: "exact_in",
+    slippageBps: 300,
+    refundAddress: AGENT,
+  };
+  // Trimmed from a live /v3/swap response for USDC on Ethereum to ETH on Base.
+  const simpleTransfer = {
+    swapId: "swap-1",
+    txHint: "simpleTransfer",
+    txType: "EVM",
+    sellAmount: "20",
+    tx: {
+      to: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      from: AGENT,
+      value: "0x0",
+      data: "0xa9059cbb0000000000000000000000002e1ee6c27e66243a6301878e5036e327d48b64b3",
+    },
+    targetAddress: "0x2e1ee6c27e66243A6301878E5036e327D48b64B3",
+    inboundAddress: "0x2e1ee6c27e66243A6301878E5036e327D48b64B3",
+    expiration: "1793912046",
+    meta: { depositChannelExpiration: 1793998327, providerDepositChannelId: "q_channel" },
+  };
+  const evmRoute = {
+    venue: "swapkit",
+    from: "eth:usdc",
+    to: "base:eth",
+    amountIn: "20000000",
+    amountOut: "1",
+    minAmountOut: "1",
+    fees: {},
+    etaSeconds: 45,
+    validUntil: NOW.toISOString(),
+    venueData: { routeId: "r" },
+  };
+
+  it("marks a simple-transfer route as payable from any wallet software", async () => {
+    const fetch = fakeFetch({
+      "/v3/quote": () =>
+        json({ routes: [{ ...apiRoute, txHint: "simpleTransfer" }, { ...apiRoute, routeId: "x", txHint: "contractCall" }] }),
+    });
+    const routes = await venue(fetch).quote(evmRequest);
+    expect(routes.map((route) => route.depositable)).toEqual([true, false]);
+  });
+
+  it("returns both the transaction and the deposit details", async () => {
+    const fetch = fakeFetch({ "/v3/swap": () => json(simpleTransfer) });
+    const prepared = await venue(fetch).prepare(evmRoute, evmRequest);
+    expect(prepared.transactions).toMatchObject([{ kind: "swap", chainId: 1, to: simpleTransfer.tx.to }]);
+    expect(prepared.deposit).toEqual({
+      asset: "eth:usdc",
+      address: "0x2e1ee6c27e66243A6301878E5036e327D48b64B3",
+      amount: "20",
+      expiresAt: new Date(1793998327 * 1000).toISOString(),
+      channelId: "q_channel",
+    });
+  });
+
+  it("gives no deposit details for a contract-call route", async () => {
+    const fetch = fakeFetch({
+      "/v3/swap": () => json({ ...simpleTransfer, txHint: "contractCall", meta: {} }),
+    });
+    const prepared = await venue(fetch).prepare(evmRoute, evmRequest);
+    expect(prepared.deposit).toBeUndefined();
+    expect(prepared.transactions).toHaveLength(1);
+  });
+
+  it("tracks by deposit channel when there is one, even with a hash", async () => {
+    const fetch = fakeFetch({ "/track": () => json({ status: "pending" }) });
+    const prepared = {
+      transactions: [{ kind: "swap" as const, chainId: 1, to: "0x", data: "0x", value: "0x0" }],
+      deposit: { asset: "eth:usdc", address: "0xvault", amount: "20", channelId: "q_channel" },
+    };
+    await venue(fetch).track({ route: evmRoute, request: evmRequest, prepared, txHashes: ["0xhash"], venueSwapId: null });
+    expect(JSON.parse(fetch.mock.calls[0]![1]?.body as string)).toEqual({ depositChannelId: "q_channel" });
+  });
+
+  it("stays awaiting the deposit when SwapKit knows nothing yet and nothing was sent", async () => {
+    const fetch = fakeFetch({ "/track": () => json({}, 404) });
+    const prepared = {
+      transactions: [],
+      deposit: { asset: "eth:usdc", address: "0xvault", amount: "20", channelId: "q_channel" },
+    };
+    const tracked = await venue(fetch).track({ route: evmRoute, request: evmRequest, prepared, txHashes: [], venueSwapId: null });
+    expect(tracked.status).toBe("awaiting_deposit");
+  });
+
+  it("ignores the empty hash SwapKit reports before a deposit lands", async () => {
+    const fetch = fakeFetch({ "/track": () => json({ status: "not_started", legs: [{ hash: "0x" }] }) });
+    const prepared = { transactions: [], deposit: { asset: "eth:usdc", address: "0xvault", amount: "20" } };
+    const tracked = await venue(fetch).track({ route: evmRoute, request: evmRequest, prepared, txHashes: [], venueSwapId: null });
+    expect(tracked).toEqual({ status: "awaiting_deposit" });
+  });
+});
+
 describe("mapTrackStatus", () => {
   it.each([
     ["not_started", "awaiting_deposit"],
