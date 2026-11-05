@@ -1,0 +1,19 @@
+{
+  "name": "@crossfare/agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "start": "node --env-file=../../.env src/main.ts"
+  },
+  "dependencies": {
+    "@arkiv-network/sdk": "^1.0.1",
+    "@hiero-ledger/sdk": "^2.90.1",
+    "@x402/core": "^2.30.0",
+    "@x402/fetch": "^2.30.0",
+    "@x402/hedera": "^2.30.0",
+    "viem": "^2.57.16"
+  }
+}
