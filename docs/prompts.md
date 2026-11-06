@@ -55,3 +55,12 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 > make this expire in 30 mins; not 72h; show the actual price as well next to the quote, like in metamask; also the send your deposit page did not wait for the deposit to happen, it might be a race condition because the prompt was running while I was checking the localhost, but worth it to check
 
 > ui is also terrible can we make the ui glassy and take inspiration from good designer websites, this looks janky, I will polish in the end if needed
+
+## 12. Feedback during a swap, the delivered moment and history
+
+> ok cool entire thing worked; but there are few things I want to point out; after I sent out the transaction to the deposit address; it checked the balance and correctly swapped on the backend but there was almost no visual feedback; the ui stays stuck at 'send your deposit' stage and only after swap completes does the page go to the confirmed page. Also the ui has to still be worked upon by a lot; I think a lot of the backend work is done and that's amazing. the confirmed page must release some dopamine; the status completed should be capitalized. you can refer to 1inch, uniswap or other dexes and learn the visual effects that they provide. also on scroll the text overlaps; wallet connect should show an intermeditiary screen of choosing which wallet to connect, on arkiv you can send capitalized statuses also so that it looks less like a db entry and more like a transaction history I refer to later
+
+## 13. Uniswap on EVM swaps, prices on quotes and a live price
+
+> Also for evm swaps, uniswap direct quote is not integrated as far as I can see, because I did a usdc on eth to eth on base swap and best quote was from near. also in the quote itself it should show the prices as well. and while inputting the amount I want to swap, use debounce and show the price, as I said, learn from other dexes visual feedback practices
+

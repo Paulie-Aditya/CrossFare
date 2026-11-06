@@ -21,6 +21,15 @@ import {
   walletMatches,
   type JourneyState,
   type PublicRoute,
+  statusLabel,
+  orderStages,
+  unitPrice,
+  swapCost,
+  formatEta,
+  isPriceable,
+  bestAdvantage,
+  receivedAboveMinimum,
+  walletOptions,
 } from "./journey.ts";
 
 const route = (quoteId: string, minAmountOut: string) => ({
@@ -300,8 +309,8 @@ describe("form helpers", () => {
 
   it("links the first hash to the source chain and later ones to the destination", () => {
     expect(explorerLinks(["0xa", "0xb"], "eth:usdc", "base:eth")).toEqual([
-      { hash: "0xa", label: "Etherscan", url: "https://etherscan.io/tx/0xa" },
-      { hash: "0xb", label: "Basescan", url: "https://basescan.org/tx/0xb" },
+      { hash: "0xa", kind: "deposit", label: "Etherscan", url: "https://etherscan.io/tx/0xa" },
+      { hash: "0xb", kind: "delivery", label: "Basescan", url: "https://basescan.org/tx/0xb" },
     ]);
   });
 });
@@ -328,5 +337,158 @@ describe("late Arkiv keys", () => {
     });
     expect(state.routes[0]?.arkiv).toEqual({ entityKey: "0xlate", pending: false });
     expect(state.routes[1]?.arkiv.entityKey).toBe("0xb");
+  });
+});
+
+describe("statusLabel", () => {
+  it.each([
+    ["completed", "Completed"],
+    ["Completed", "Completed"],
+    ["awaiting_deposit", "Awaiting deposit"],
+    ["confirming", "Confirming"],
+    ["exchanging", "Swapping"],
+    ["executing", "In progress"],
+    ["In progress", "In progress"],
+    ["refunded", "Refunded"],
+  ])("reads %s as %s", (status, label) => {
+    expect(statusLabel(status)).toBe(label);
+  });
+});
+
+describe("orderStages", () => {
+  const order = (swapStatus: string, deposit = true) =>
+    orderStages({
+      ...initialJourney,
+      step: ["completed", "refunded", "failed", "expired"].includes(swapStatus) ? "finished" : "tracking",
+      swapStatus,
+      deposit: deposit ? { asset: "eth:usdc", address: "0xd", amount: "5" } : null,
+    });
+  const states = (stages: ReturnType<typeof orderStages>) => stages.map((stage) => stage.state);
+
+  it("waits on the deposit first", () => {
+    expect(states(order("awaiting_deposit"))).toEqual(["current", "upcoming", "upcoming"]);
+  });
+
+  it("ticks the deposit as soon as it is seen", () => {
+    expect(states(order("confirming"))).toEqual(["done", "current", "upcoming"]);
+    expect(states(order("exchanging"))).toEqual(["done", "current", "upcoming"]);
+  });
+
+  it("finishes with everything ticked", () => {
+    expect(states(order("completed"))).toEqual(["done", "done", "done"]);
+  });
+
+  it("marks a refund or failure on the swap stage", () => {
+    expect(states(order("refunded"))).toEqual(["done", "failed", "upcoming"]);
+    expect(states(order("failed"))).toEqual(["done", "failed", "upcoming"]);
+  });
+
+  it("names the first stage for how the funds were sent", () => {
+    expect(order("confirming")[0]?.name).toBe("Deposit received");
+    expect(order("confirming", false)[0]?.name).toBe("Transaction sent");
+  });
+
+  it("doesn't claim a deposit before one arrives", () => {
+    expect(order("awaiting_deposit")[0]?.name).toBe("Send deposit");
+  });
+});
+
+describe("a status that lags", () => {
+  it("doesn't move a detected deposit back to awaiting", () => {
+    const moving = { ...initialJourney, step: "tracking" as const, swapStatus: "exchanging" };
+    expect(reduceJourney(moving, { type: "status", status: "awaiting_deposit" }).swapStatus).toBe("exchanging");
+  });
+});
+
+describe("form_changed", () => {
+  it("drops quotes that no longer match the form", () => {
+    const quoted = { ...initialJourney, step: "quoted" as const, routes: [{ quoteId: "q1" } as PublicRoute], swapToken: "t" };
+    const changed = reduceJourney(quoted, { type: "form_changed" });
+    expect(changed.routes).toEqual([]);
+    expect(changed.step).toBe("idle");
+    expect(changed.swapToken).toBeNull();
+  });
+
+  it("leaves an order in progress alone", () => {
+    const tracking = { ...initialJourney, step: "tracking" as const, swapId: "s1" };
+    expect(reduceJourney(tracking, { type: "form_changed" })).toBe(tracking);
+  });
+});
+
+describe("price helpers", () => {
+  it("formats larger dollar amounts with separators", () => {
+    expect(formatUsd(2240.671)).toBe("$2,240.67");
+  });
+
+  it("states the unit price of the asset bought", () => {
+    expect(unitPrice("0.002", 4.5)).toBe("$2,250.00");
+    expect(unitPrice("0", 4.5)).toBeNull();
+    expect(unitPrice("0.002", undefined)).toBeNull();
+  });
+
+  it("states what the swap costs, in dollars and percent", () => {
+    expect(swapCost({ in: 5, out: 4.9 })).toBe("$0.10 (2.00%)");
+    expect(swapCost({ in: 5, out: 5.2 })).toBeNull();
+    expect(swapCost(undefined)).toBeNull();
+  });
+
+  it("states the time in plain words", () => {
+    expect(formatEta(49)).toBe("About 49 seconds");
+    expect(formatEta(1)).toBe("A few seconds");
+    expect(formatEta(150)).toBe("About 3 minutes");
+    expect(formatEta(0)).toBeNull();
+  });
+
+  it("tells a usable amount from an unfinished one", () => {
+    expect(isPriceable("5")).toBe(true);
+    expect(isPriceable("0.5")).toBe(true);
+    expect(isPriceable("")).toBe(false);
+    expect(isPriceable("0")).toBe(false);
+    expect(isPriceable("0.")).toBe(false);
+    expect(isPriceable("abc")).toBe(false);
+  });
+
+  it("says how much better the best route is than the next", () => {
+    const route = (quoteId: string, minAmountOut: string, out?: number) =>
+      ({ quoteId, minAmountOut, amountOut: minAmountOut, usd: out === undefined ? undefined : { in: 5, out } }) as PublicRoute;
+    expect(bestAdvantage([route("a", "2", 4.9), route("b", "1", 4.4)])).toBe("$0.50");
+    expect(bestAdvantage([route("a", "2", 4.9)])).toBeNull();
+    expect(bestAdvantage([route("a", "2"), route("b", "1")])).toBeNull();
+  });
+
+  it("compares what arrived with what was guaranteed", () => {
+    expect(receivedAboveMinimum("0.00225", "0.00216")).toBe("4.17%");
+    expect(receivedAboveMinimum("0.002", "0.002")).toBeNull();
+    expect(receivedAboveMinimum(null, "0.002")).toBeNull();
+  });
+});
+
+describe("explorer links for chains that don't match", () => {
+  it("skips a hash that can't be on an EVM destination", () => {
+    const links = explorerLinks(["0xaaa", "5i7QpCFZ"], "eth:usdc", "base:eth");
+    expect(links.map((link) => link.hash)).toEqual(["0xaaa"]);
+  });
+
+  it("names the deposit and the delivery", () => {
+    const links = explorerLinks(["0xaaa", "5i7QpCFZ", "0xbbb"], "eth:usdc", "base:eth");
+    expect(links.map((link) => link.kind)).toEqual(["deposit", "delivery"]);
+  });
+});
+
+describe("walletOptions", () => {
+  const injected = { id: "injected", name: "Injected", type: "injected" };
+  const metamask = { id: "io.metamask", name: "MetaMask", type: "injected", icon: "data:image/svg+xml,x" };
+  const rabby = { id: "io.rabby", name: "Rabby Wallet", type: "injected", icon: "data:image/svg+xml,y" };
+
+  it("lists each discovered wallet and hides the generic entry", () => {
+    expect(walletOptions([injected, metamask, rabby]).map((option) => option.id)).toEqual(["io.metamask", "io.rabby"]);
+  });
+
+  it("names the generic entry plainly when it's all there is", () => {
+    expect(walletOptions([injected])[0]?.name).toBe("Browser wallet");
+  });
+
+  it("can be empty", () => {
+    expect(walletOptions([])).toEqual([]);
   });
 });

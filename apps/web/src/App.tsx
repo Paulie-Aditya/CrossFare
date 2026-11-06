@@ -1,34 +1,11 @@
 import { useState } from "react";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { shorten } from "./journey.ts";
 import { QuoteRecord } from "./QuoteRecord.tsx";
 import { SwapPage } from "./SwapPage.tsx";
-
-function WalletButton() {
-  const { address, isConnected } = useAccount();
-  const { connect, connectors, isPending, error } = useConnect();
-  const { disconnect } = useDisconnect();
-
-  if (isConnected && address) {
-    return (
-      <button className="wallet" onClick={() => disconnect()} title="Disconnect wallet">
-        {shorten(address)}
-      </button>
-    );
-  }
-  const connector = connectors[0];
-  return (
-    <div className="wallet-slot">
-      <button className="wallet" disabled={isPending || !connector} onClick={() => connector && connect({ connector })}>
-        {isPending ? "Connecting" : "Connect wallet"}
-      </button>
-      {error && <p className="wallet-error">No wallet connected. Install a browser wallet, then try again.</p>}
-    </div>
-  );
-}
+import { useWalletMenu, WalletButton } from "./WalletMenu.tsx";
 
 export function App() {
   const [page, setPage] = useState<"swap" | "record">("swap");
+  const walletMenu = useWalletMenu();
   return (
     <>
       <header className="masthead glass">
@@ -44,15 +21,15 @@ export function App() {
             Swap
           </button>
           <button aria-current={page === "record" ? "page" : undefined} onClick={() => setPage("record")}>
-            Quote record
+            History
           </button>
         </nav>
-        <WalletButton />
+        <WalletButton {...walletMenu} />
       </header>
       <main>
         {/* Stays mounted so a swap in progress survives a look at the record. */}
         <div hidden={page !== "swap"}>
-          <SwapPage />
+          <SwapPage onConnectWallet={walletMenu.onOpen} />
         </div>
         {page === "record" && <QuoteRecord />}
       </main>

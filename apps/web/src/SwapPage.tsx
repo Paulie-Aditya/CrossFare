@@ -1,30 +1,42 @@
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { useAccount, useConfig, useSendTransaction, useSwitchChain } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
 import { QRCodeSVG } from "qrcode.react";
 import { get, post } from "./api.ts";
+import { Delivered } from "./Delivered.tsx";
 import {
   arkivEntityUrl,
+  bestAdvantage,
   bestRoute,
   buildQuoteRequest,
   defaultSlippage,
+  explorerAddressUrl,
   explorerLinks,
   formatAmount,
   formatCountdown,
   formatDeadline,
+  formatEta,
   formatRate,
   formatUsd,
   hashscanUrl,
   initialJourney,
   journeyStations,
+  orderStages,
   reduceJourney,
   routeAction,
   shorten,
+  statusLabel,
+  swapCost,
+  unitPrice,
   walletMatches,
   type Deposit,
+  type OrderStage,
   type PublicRoute,
   type SwapTransaction,
 } from "./journey.ts";
+import { useLivePrice } from "./live-price.ts";
+import { InFlight, Stepper } from "./OrderTracker.tsx";
+import { CHAIN_NAMES, Coin, CopyButton, Modal } from "./ui.tsx";
 
 interface AssetOption {
   id: string;
@@ -33,19 +45,11 @@ interface AssetOption {
   venues: string[];
 }
 
-const CHAIN_NAMES: Record<string, string> = {
-  base: "Base",
-  eth: "Ethereum",
-  btc: "Bitcoin",
-  sol: "Solana",
-  xrp: "XRP Ledger",
-};
 const EVM_CHAINS = ["base", "eth"];
-const STATUS_POLL_MS = 15_000;
+const STATUS_POLL_MS = 4_000;
 const ARKIV_POLL_MS = 5_000;
-const COPIED_MS = 2_000;
+const BASE_TITLE = "Crossfare";
 
-const assetLabel = (asset: AssetOption) => `${asset.symbol.toUpperCase()} on ${CHAIN_NAMES[asset.chain] ?? asset.chain}`;
 const symbolOf = (id: string) => id.split(":")[1]?.toUpperCase() ?? id;
 const chainNameOf = (id: string) => {
   const chain = id.split(":")[0] ?? "";
@@ -56,6 +60,8 @@ const providerName = (route: PublicRoute) => {
   const provider = route.provider?.replaceAll("_", " ");
   return provider ? `SwapKit via ${provider.toUpperCase()}` : "SwapKit";
 };
+const providerShort = (route: PublicRoute | undefined) =>
+  route?.venue === "uniswap" ? "Uniswap" : (route?.provider?.replaceAll("_", " ").toUpperCase() ?? "SwapKit");
 
 function useNow(active: boolean): Date {
   const [now, setNow] = useState(() => new Date());
@@ -67,19 +73,57 @@ function useNow(active: boolean): Date {
   return now;
 }
 
+function PriceRows(props: { amount: string; amountOut: string; usd: { in: number; out: number } | undefined; from: string; to: string; etaSeconds: number }) {
+  const { amount, amountOut, usd, from, to, etaSeconds } = props;
+  const rate = formatRate(amount, amountOut, symbolOf(from), symbolOf(to));
+  const price = unitPrice(amountOut, usd?.out);
+  const cost = swapCost(usd);
+  const eta = formatEta(etaSeconds);
+  return (
+    <>
+      {rate && (
+        <div>
+          <dt>Rate</dt>
+          <dd>{rate}</dd>
+        </div>
+      )}
+      {price && (
+        <div>
+          <dt>{symbolOf(to)} price</dt>
+          <dd>{price}</dd>
+        </div>
+      )}
+      {cost && (
+        <div>
+          <dt>Swap cost</dt>
+          <dd>{cost}</dd>
+        </div>
+      )}
+      {eta && (
+        <div>
+          <dt>Time</dt>
+          <dd>{eta}</dd>
+        </div>
+      )}
+    </>
+  );
+}
+
 function RouteRow(props: {
   route: PublicRoute;
   from: string;
   to: string;
   amount: string;
   isBest: boolean;
+  advantage: string | null;
   now: Date;
   disabled: boolean;
   chosen: boolean;
   connected: boolean;
   onSwap: () => void;
+  onConnect: () => void;
 }) {
-  const { route, from, to, amount, isBest, now, disabled, chosen, connected, onSwap } = props;
+  const { route, from, to, amount, isBest, advantage, now, disabled, chosen, connected, onSwap, onConnect } = props;
   const countdown = formatCountdown(route.validUntil, now);
   const expired = countdown === "Expired";
   const action = routeAction(route, connected);
@@ -92,28 +136,30 @@ function RouteRow(props: {
         : action === "wallet"
           ? "Swap with wallet"
           : "Connect a wallet for this route";
-  const usd = formatUsd(route.usd?.out);
-  const rate = formatRate(amount, route.amountOut, symbolOf(from), symbolOf(to));
+  const usdOut = formatUsd(route.usd?.out);
+  const usdIn = formatUsd(route.usd?.in);
   return (
     <article className={isBest ? "route route-best glass" : "route glass"} data-chosen={chosen || undefined}>
       <div className="route-head">
         <p className="route-venue">{providerName(route)}</p>
-        {isBest && <p className="route-badge">Best price</p>}
+        {isBest && <p className="route-badge">{advantage ? `Best price, ${advantage} more` : "Best price"}</p>}
         <p className={expired ? "route-clock is-expired" : "route-clock"} aria-label={`Quote valid for ${countdown}`}>
           {countdown}
         </p>
       </div>
       <p className="route-amount">
         {formatAmount(route.amountOut)} <span>{symbolOf(to)}</span>
-        {usd && <small>{usd}</small>}
+        {usdOut && <small>{usdOut}</small>}
       </p>
       <dl className="route-facts">
-        {rate && (
-          <div>
-            <dt>Rate</dt>
-            <dd>{rate}</dd>
-          </div>
-        )}
+        <div>
+          <dt>You pay</dt>
+          <dd>
+            {amount} {symbolOf(from)}
+            {usdIn && ` (${usdIn})`}
+          </dd>
+        </div>
+        <PriceRows amount={amount} amountOut={route.amountOut} usd={route.usd} from={from} to={to} etaSeconds={route.etaSeconds} />
         <div>
           <dt>You get at least</dt>
           <dd>
@@ -127,9 +173,10 @@ function RouteRow(props: {
             Public record on Arkiv
           </a>
         ) : (
-          <span>Publishing to Arkiv</span>
+          <span className="route-pending">Publishing to Arkiv</span>
         )}
-        <button className="route-action" disabled={disabled || action === "connect"} onClick={onSwap}>
+        <button className="route-action" disabled={disabled} onClick={action === "connect" ? onConnect : onSwap}>
+          {chosen && <span className="spinner" aria-hidden="true" />}
           {actionLabel}
         </button>
       </div>
@@ -137,25 +184,8 @@ function RouteRow(props: {
   );
 }
 
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), COPIED_MS);
-    } catch {
-      setCopied(false);
-    }
-  }
-  return (
-    <button type="button" className="order-copy" onClick={copy}>
-      {copied ? "Copied" : "Copy"}
-    </button>
-  );
-}
-
 function OrderPanel(props: {
+  stages: OrderStage[];
   deposit: Deposit;
   route: PublicRoute | undefined;
   toAsset: string;
@@ -170,10 +200,10 @@ function OrderPanel(props: {
 }) {
   const { deposit, route, toAsset, refundAddress, recipient, now, connected, sending, canSendWithWallet } = props;
   const matches = walletMatches(connected, refundAddress);
-  const rate = route && formatRate(deposit.amount, route.amountOut, symbolOf(deposit.asset), symbolOf(toAsset));
   const usd = formatUsd(route?.usd?.out);
   return (
     <section className="order glass" aria-label="Deposit instructions">
+      <Stepper stages={props.stages} />
       <div className="order-head">
         <h2>Send your deposit</h2>
         {deposit.expiresAt && (
@@ -198,6 +228,10 @@ function OrderPanel(props: {
           Include this memo: <span>{deposit.memo}</span>
         </p>
       )}
+      <div className="order-watch" role="status">
+        <span className="radar" aria-hidden="true" />
+        <p>Watching {chainNameOf(deposit.asset)} for your deposit. This page moves on by itself once it lands.</p>
+      </div>
       <div className="order-body">
         <div className="order-qr">
           <QRCodeSVG value={deposit.address} size={136} marginSize={1} title="Deposit address as a QR code" />
@@ -220,10 +254,10 @@ function OrderPanel(props: {
               </dd>
             </div>
           )}
-          {rate && (
+          {route && formatRate(deposit.amount, route.amountOut, symbolOf(deposit.asset), symbolOf(toAsset)) && (
             <div>
               <dt>Rate</dt>
-              <dd>{rate}</dd>
+              <dd>{formatRate(deposit.amount, route.amountOut, symbolOf(deposit.asset), symbolOf(toAsset))}</dd>
             </div>
           )}
         </dl>
@@ -240,6 +274,7 @@ function OrderPanel(props: {
       <div className="order-actions">
         {canSendWithWallet && matches && (
           <button className="primary order-send" disabled={sending} onClick={props.onSendWithWallet}>
+            {sending && <span className="spinner" aria-hidden="true" />}
             {sending ? "Confirm in your wallet" : "Send with wallet"}
           </button>
         )}
@@ -256,7 +291,60 @@ function OrderPanel(props: {
   );
 }
 
-export function SwapPage() {
+function TokenButton(props: { label: string; asset: string; options: AssetOption[]; onPick: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className="token"
+        aria-label={`${props.label}: ${symbolOf(props.asset)} on ${chainNameOf(props.asset)}`}
+        onClick={() => setOpen(true)}
+      >
+        <Coin asset={props.asset} size={26} />
+        <span className="token-text">
+          <strong>{symbolOf(props.asset)}</strong>
+          <small>{chainNameOf(props.asset)}</small>
+        </span>
+        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+          <path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <Modal title={props.label} onClose={() => setOpen(false)}>
+          <ul className="token-list">
+            {props.options.map((option) => (
+              <li key={option.id}>
+                <button
+                  type="button"
+                  className="token-option"
+                  aria-current={option.id === props.asset || undefined}
+                  onClick={() => {
+                    props.onPick(option.id);
+                    setOpen(false);
+                  }}
+                >
+                  <Coin asset={option.id} size={36} />
+                  <span>
+                    <strong>{option.symbol.toUpperCase()}</strong>
+                    <small>on {CHAIN_NAMES[option.chain] ?? option.chain}</small>
+                  </span>
+                  {option.id === props.asset && (
+                    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                      <path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+export function SwapPage({ onConnectWallet }: { onConnectWallet: () => void }) {
   const { address, chainId, isConnected } = useAccount();
   const config = useConfig();
   const { switchChainAsync } = useSwitchChain();
@@ -272,11 +360,59 @@ export function SwapPage() {
   const [slippageChoice, setSlippageChoice] = useState<string | null>(null);
 
   const slippage = slippageChoice ?? defaultSlippage(from, to);
-  const stations = useMemo(() => journeyStations(state), [state]);
   const now = useNow(state.step !== "idle" && state.step !== "finished");
   const best = bestRoute(state.routes);
   const busy = state.step === "quoting" || state.step === "preparing" || state.step === "signing";
   const hasPending = state.routes.some((route) => route.arkiv.pending);
+  const hasOrder = state.swapId !== null;
+  const price = useLivePrice(from, to, amount, !hasOrder && state.routes.length === 0 && state.step !== "quoting");
+  const live = price.status === "ready" ? price.price : null;
+  const pricing = price.status === "loading";
+
+  // Quotes answer the form as it was, so changing it withdraws them.
+  useEffect(() => {
+    dispatch({ type: "form_changed" });
+  }, [from, to, amount, recipient, refundAddress, slippage]);
+
+  const moving = state.swapStatus === "confirming" || state.swapStatus === "exchanging";
+  const startedAt = useRef<number | null>(null);
+  const [elapsedFinal, setElapsedFinal] = useState<number | null>(null);
+  useEffect(() => {
+    if (moving && startedAt.current === null) startedAt.current = Date.now();
+    if (state.swapStatus === "completed" && startedAt.current !== null) {
+      setElapsedFinal(Math.round((Date.now() - startedAt.current) / 1000));
+    }
+    if (state.swapStatus === null) {
+      startedAt.current = null;
+      setElapsedFinal(null);
+    }
+  }, [moving, state.swapStatus]);
+
+  // Each new screen starts at its top, and quotes arriving below the form come into view.
+  const routesRef = useRef<HTMLElement>(null);
+  const screen = state.swapStatus === "completed" ? "done" : moving ? "moving" : hasOrder ? "order" : "form";
+  useEffect(() => {
+    if (screen !== "form") window.scrollTo(0, 0);
+  }, [screen]);
+  const quotesReady = state.step === "quoted" && state.routes.length > 0;
+  useEffect(() => {
+    if (!quotesReady) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    routesRef.current?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+  }, [quotesReady]);
+
+  // The tab says where the swap is, for someone who has switched away.
+  useEffect(() => {
+    const titles: Record<string, string> = {
+      awaiting_deposit: `Waiting for deposit, ${BASE_TITLE}`,
+      confirming: `Deposit received, ${BASE_TITLE}`,
+      exchanging: `Swapping, ${BASE_TITLE}`,
+      completed: `Swap complete, ${BASE_TITLE}`,
+      refunded: `Refunded, ${BASE_TITLE}`,
+      failed: `Failed, ${BASE_TITLE}`,
+    };
+    document.title = titles[state.swapStatus ?? ""] ?? BASE_TITLE;
+  }, [state.swapStatus]);
 
   // A connected wallet fills in the refund address, which the person can still change.
   useEffect(() => {
@@ -302,9 +438,13 @@ export function SwapPage() {
   useEffect(() => {
     if (state.step !== "tracking" || !state.swapId) return;
     const swapId = state.swapId;
-    const timer = setInterval(async () => {
-      const answer = await get(`/v1/swaps/${swapId}`);
-      if (answer.ok) {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    // Waits for each answer, because a slow provider must not stack up requests.
+    const poll = async () => {
+      const answer = await get(`/v1/swaps/${swapId}`).catch(() => null);
+      if (stopped) return;
+      if (answer?.ok) {
         dispatch({
           type: "status",
           status: answer.body.status,
@@ -312,8 +452,13 @@ export function SwapPage() {
           txHashes: answer.body.txHashes,
         });
       }
-    }, STATUS_POLL_MS);
-    return () => clearInterval(timer);
+      timer = setTimeout(poll, STATUS_POLL_MS);
+    };
+    timer = setTimeout(poll, STATUS_POLL_MS);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, [state.step, state.swapId]);
 
   async function getQuotes(event: React.FormEvent) {
@@ -394,19 +539,42 @@ export function SwapPage() {
   const fromOptions = assets.filter((asset) => EVM_CHAINS.includes(asset.chain));
   const toOptions = assets.filter((asset) => asset.id !== from);
   const chosen = state.routes.find((route) => route.quoteId === state.chosenQuoteId);
-  const hasOrder = state.swapId !== null;
   const awaitingDeposit = state.swapStatus === "awaiting_deposit" || (state.step === "signing" && state.deposit !== null);
   const hashLinks = explorerLinks(state.txHashes, from, to);
-  const bestRate = best && formatRate(amount, best.amountOut, symbolOf(from), symbolOf(to));
+  const stations = journeyStations(state);
+  const stages = orderStages(state);
   const currentStation = stations.find((station) => station.state === "current");
-  const receiptTitle =
-    state.swapStatus === "completed"
-      ? "Delivered"
-      : state.swapStatus === "expired"
-        ? "Order expired"
-        : state.step === "finished"
-          ? "Swap ended"
-          : "Swap in progress";
+  const canFlip = EVM_CHAINS.includes(to.split(":")[0] ?? "");
+
+  const shownOut = best?.amountOut ?? live?.amountOut ?? null;
+  const shownUsd = best?.usd ?? live?.usd;
+  const estimated = !best && !!live?.estimated;
+
+  function pickFrom(id: string) {
+    if (id === to) setTo(from);
+    setFrom(id);
+  }
+
+  function flip() {
+    const oldFrom = from;
+    setFrom(to);
+    setTo(oldFrom);
+  }
+
+  const sentHash = hashLinks.find((link) => link.kind === "deposit");
+  const fromChain = from.split(":")[0] ?? "";
+  const sentLink = sentHash
+    ? { label: sentHash.label, url: sentHash.url }
+    : state.deposit
+      ? { label: fromChain === "base" ? "Basescan" : "Etherscan", url: explorerAddressUrl(fromChain, state.deposit.address) }
+      : null;
+  const proofLinks = [
+    ...hashLinks.map((link) => ({ label: `${link.kind === "deposit" ? "Deposit" : "Delivery"} on ${link.label}`, url: link.url })),
+    ...(chosen?.arkiv.entityKey ? [{ label: "Public record on Arkiv", url: arkivEntityUrl(chosen.arkiv.entityKey) }] : []),
+    ...(state.quotePayment ? [{ label: "Quote payment on HashScan", url: hashscanUrl(state.quotePayment) }] : []),
+    ...(state.swapPayment ? [{ label: "Swap fee on HashScan", url: hashscanUrl(state.swapPayment) }] : []),
+  ];
+  const elapsedSeconds = startedAt.current === null ? 0 : Math.max(0, Math.round((now.getTime() - startedAt.current) / 1000));
 
   return (
     <div className="stage">
@@ -419,101 +587,133 @@ export function SwapPage() {
 
       {!hasOrder && (
         <form className="swap glass" onSubmit={getQuotes}>
-          <div className="swap-panel">
-            <label htmlFor="send-amount">You send</label>
-            <div className="swap-row">
+          <fieldset disabled={busy}>
+            <div className="swap-panel">
+              <label htmlFor="send-amount">You send</label>
+              <div className="swap-row">
+                <input
+                  id="send-amount"
+                  className="swap-amount"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  required
+                  pattern="[0-9]*\.?[0-9]+"
+                  placeholder="0"
+                  value={amount}
+                  onChange={(event) => setAmount(event.target.value.replace(",", "."))}
+                />
+                <TokenButton label="You send" asset={from} options={fromOptions} onPick={pickFrom} />
+              </div>
+              <p className={pricing && !shownUsd ? "swap-sub is-loading" : "swap-sub"}>{pricing ? " " : (formatUsd(shownUsd?.in) ?? " ")}</p>
+            </div>
+
+            <button type="button" className="swap-arrow" aria-label="Swap the two assets" disabled={!canFlip} onClick={flip}>
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path d="M12 5v14m0 0-6-6m6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            <div className="swap-panel">
+              <span className="swap-label">You receive</span>
+              <div className="swap-row">
+                <output className={shownOut && !pricing ? "swap-amount" : "swap-amount is-empty"} aria-busy={pricing} aria-live="polite">
+                  {pricing ? (
+                    <span className="skeleton skeleton-amount" />
+                  ) : shownOut ? (
+                    <span className="tick" key={shownOut}>
+                      {estimated && "~"}
+                      {formatAmount(shownOut)}
+                    </span>
+                  ) : (
+                    "0"
+                  )}
+                </output>
+                <TokenButton label="You receive" asset={to} options={toOptions} onPick={setTo} />
+              </div>
+              <p className={pricing ? "swap-sub is-loading" : "swap-sub"}>
+                {pricing
+                  ? " "
+                  : price.status === "no_route"
+                    ? "No route for this amount. Try a larger one."
+                    : price.status === "unavailable"
+                      ? "Prices aren't available right now. You can still get quotes."
+                      : (formatUsd(shownUsd?.out) ?? " ")}
+              </p>
+            </div>
+
+            {!best && (pricing || live) && (
+              <dl className="swap-details" aria-busy={pricing}>
+                {pricing || !live ? (
+                  <>
+                    <div><dt><span className="skeleton skeleton-line" /></dt><dd><span className="skeleton skeleton-line" /></dd></div>
+                    <div><dt><span className="skeleton skeleton-line" /></dt><dd><span className="skeleton skeleton-line" /></dd></div>
+                  </>
+                ) : (
+                  <>
+                    <PriceRows amount={amount} amountOut={live.amountOut} usd={live.usd} from={from} to={to} etaSeconds={live.etaSeconds} />
+                    <div>
+                      <dt>Best route right now</dt>
+                      <dd className="swap-route">
+                        {providerShort({ venue: live.venue, provider: live.provider } as PublicRoute)}
+                        {price.status === "ready" && (
+                          <span className="refresh-ring" key={price.fetchedAt} style={{ animationDuration: `${price.refreshMs}ms` }} title="Time until this price refreshes" />
+                        )}
+                      </dd>
+                    </div>
+                  </>
+                )}
+              </dl>
+            )}
+
+            <label className="field">
+              <span>Receiving address on {chainNameOf(to)}</span>
               <input
-                id="send-amount"
-                className="swap-amount"
-                inputMode="decimal"
                 required
-                pattern="[0-9]*\.?[0-9]+"
-                value={amount}
-                onChange={(event) => setAmount(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Where the funds should arrive"
+                value={recipient}
+                onChange={(event) => setRecipient(event.target.value)}
               />
-              <select aria-label="Asset to send" value={from} onChange={(event) => setFrom(event.target.value)}>
-                {fromOptions.map((asset) => (
-                  <option key={asset.id} value={asset.id}>
-                    {assetLabel(asset)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <p className="swap-sub">{formatUsd(best?.usd?.in) ?? " "}</p>
-          </div>
+            </label>
 
-          <div className="swap-arrow" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="18" height="18">
-              <path d="M12 5v14m0 0-6-6m6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
+            <label className="field">
+              <span>Refund address on {chainNameOf(from)}</span>
+              <input
+                required
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="A wallet you control"
+                value={refundAddress}
+                onChange={(event) => setRefundAddress(event.target.value)}
+              />
+              <small>If the swap can't go ahead, your funds return here. Don't use an exchange address.</small>
+            </label>
 
-          <div className="swap-panel">
-            <span className="swap-label">You receive</span>
-            <div className="swap-row">
-              <output className={best ? "swap-amount" : "swap-amount is-empty"}>
-                {best ? formatAmount(best.amountOut) : "0"}
-              </output>
-              <select aria-label="Asset to receive" value={to} onChange={(event) => setTo(event.target.value)}>
-                {toOptions.map((asset) => (
-                  <option key={asset.id} value={asset.id}>
-                    {assetLabel(asset)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <p className="swap-sub">
-              {best ? [formatUsd(best.usd?.out), bestRate].filter(Boolean).join(", ") : "Get quotes to see the price"}
+            <label className="swap-slippage">
+              <span>Max slippage</span>
+              <span className="swap-slippage-input">
+                <input
+                  inputMode="decimal"
+                  required
+                  pattern="[0-9]*\.?[0-9]+"
+                  aria-label="Slippage percent"
+                  value={slippage}
+                  onChange={(event) => setSlippageChoice(event.target.value)}
+                />
+                %
+              </span>
+            </label>
+
+            <button className="primary swap-action" disabled={busy}>
+              {state.step === "quoting" && <span className="spinner" aria-hidden="true" />}
+              {state.step === "quoting" ? "Paying for quotes and publishing them" : "Get quotes"}
+            </button>
+            <p className="swap-note">
+              No account or wallet connection needed: send the deposit from any wallet or exchange. Prices here are estimates
+              until you get quotes. Swaps run on mainnet with your own funds. This demo pays Crossfare's quote fee in testnet USDC.
             </p>
-          </div>
-
-          <label className="field">
-            <span>Receiving address on {chainNameOf(to)}</span>
-            <input
-              required
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="Where the funds should arrive"
-              value={recipient}
-              onChange={(event) => setRecipient(event.target.value)}
-            />
-          </label>
-
-          <label className="field">
-            <span>Refund address on {chainNameOf(from)}</span>
-            <input
-              required
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="A wallet you control"
-              value={refundAddress}
-              onChange={(event) => setRefundAddress(event.target.value)}
-            />
-            <small>If the swap can't go ahead, your funds return here. Don't use an exchange address.</small>
-          </label>
-
-          <label className="swap-slippage">
-            <span>Max slippage</span>
-            <span className="swap-slippage-input">
-              <input
-                inputMode="decimal"
-                required
-                pattern="[0-9]*\.?[0-9]+"
-                aria-label="Slippage percent"
-                value={slippage}
-                onChange={(event) => setSlippageChoice(event.target.value)}
-              />
-              %
-            </span>
-          </label>
-
-          <button className="primary swap-action" disabled={busy}>
-            {state.step === "quoting" ? "Getting quotes" : "Get quotes"}
-          </button>
-          <p className="swap-note">
-            No account or wallet connection needed: send the deposit from any wallet or exchange. Swaps run on mainnet with
-            your own funds. This demo pays Crossfare's quote fee in testnet USDC.
-          </p>
+          </fieldset>
         </form>
       )}
 
@@ -528,8 +728,18 @@ export function SwapPage() {
         </p>
       )}
 
+      {state.step === "quoting" && (
+        <section className="routes" aria-label="Loading quotes">
+          <div className="route route-skeleton glass" aria-hidden="true">
+            <span className="skeleton skeleton-line" />
+            <span className="skeleton skeleton-big" />
+            <span className="skeleton skeleton-line" />
+          </div>
+        </section>
+      )}
+
       {state.routes.length > 0 && !hasOrder && (
-        <section className="routes" aria-label="Quotes">
+        <section className="routes" aria-label="Quotes" ref={routesRef}>
           {state.routes.map((route) => (
             <RouteRow
               key={route.quoteId}
@@ -538,11 +748,13 @@ export function SwapPage() {
               to={to}
               amount={amount}
               isBest={best?.quoteId === route.quoteId && state.routes.length > 1}
+              advantage={bestAdvantage(state.routes)}
               now={now}
               connected={isConnected}
               chosen={state.chosenQuoteId === route.quoteId}
               disabled={busy}
               onSwap={() => swap(route)}
+              onConnect={onConnectWallet}
             />
           ))}
         </section>
@@ -550,6 +762,7 @@ export function SwapPage() {
 
       {state.deposit && awaitingDeposit && (
         <OrderPanel
+          stages={stages}
           deposit={state.deposit}
           route={chosen}
           toAsset={to}
@@ -565,47 +778,79 @@ export function SwapPage() {
       )}
 
       {state.step === "signing" && !state.deposit && (
-        <p className="message glass" role="status">
+        <p className="message message-wait glass" role="status">
+          <span className="spinner" aria-hidden="true" />
           Confirm the transaction in your wallet.
         </p>
       )}
 
-      {(state.step === "tracking" || state.step === "finished") && !awaitingDeposit && chosen && (
+      {state.step === "tracking" && !awaitingDeposit && moving && (
+        <InFlight
+          stages={stages}
+          status={state.swapStatus ?? ""}
+          route={chosen}
+          providerName={providerShort(chosen)}
+          from={from}
+          to={to}
+          amount={amount}
+          recipient={recipient}
+          elapsedSeconds={elapsedSeconds}
+          sentLink={sentLink}
+        />
+      )}
+
+      {state.swapStatus === "completed" && (
+        <Delivered
+          route={chosen}
+          from={from}
+          to={to}
+          amount={amount}
+          recipient={recipient}
+          amountReceived={state.amountReceived}
+          elapsedSeconds={elapsedFinal}
+          links={proofLinks}
+          onAgain={() => dispatch({ type: "reset" })}
+        />
+      )}
+
+      {state.step === "finished" && state.swapStatus !== "completed" && (
         <section className="receipt glass" aria-label="Swap result">
-          <h2>{receiptTitle}</h2>
-          {state.swapStatus === "expired" ? (
-            <p className="receipt-note">
-              Don't send to that deposit address. Start a new swap to get a fresh quote. If you already sent funds, keep the
-              transaction hash, because the provider may still process them.
-            </p>
-          ) : (
-            <dl>
-              <div>
-                <dt>You get at least</dt>
-                <dd>
-                  {formatAmount(chosen.minAmountOut)} {symbolOf(to)}
-                </dd>
-              </div>
-              <div>
-                <dt>Received</dt>
-                <dd>{state.amountReceived ? `${formatAmount(state.amountReceived)} ${symbolOf(to)}` : "Waiting"}</dd>
-              </div>
-              <div>
-                <dt>Status</dt>
-                <dd>{(state.swapStatus ?? "").replaceAll("_", " ")}</dd>
-              </div>
-            </dl>
+          <h2>{state.swapStatus === "expired" ? "Order expired" : state.swapStatus === "refunded" ? "Swap refunded" : "Swap failed"}</h2>
+          <p className="status">{statusLabel(state.swapStatus ?? "")}</p>
+          <p className="receipt-note">
+            {state.swapStatus === "expired"
+              ? "Don't send to that deposit address. Start a new swap to get a fresh quote. If you already sent funds, keep the transaction hash, because the provider may still process them."
+              : state.swapStatus === "refunded"
+                ? `The provider returned your funds to ${shorten(refundAddress)}.`
+                : "The swap didn't complete. Check the links below for where your funds are."}
+          </p>
+          {proofLinks.length > 0 && (
+            <div className="proof-links">
+              {proofLinks.map((link) => (
+                <a key={link.url} href={link.url} target="_blank" rel="noreferrer">
+                  {link.label}
+                </a>
+              ))}
+            </div>
           )}
-          {state.step === "finished" && (
-            <button className="primary receipt-action" onClick={() => dispatch({ type: "reset" })}>
-              Start another swap
-            </button>
-          )}
+          <button className="primary receipt-action" onClick={() => dispatch({ type: "reset" })}>
+            Start another swap
+          </button>
         </section>
       )}
 
-      {state.step !== "idle" && (
-        <aside className="progress glass" aria-label="Swap progress">
+      {hasOrder && awaitingDeposit && proofLinks.length > 0 && (
+        <div className="proof-links proof-links-center">
+          {proofLinks.map((link) => (
+            <a key={link.url} href={link.url} target="_blank" rel="noreferrer">
+              {link.label}
+            </a>
+          ))}
+        </div>
+      )}
+
+      {!hasOrder && state.step !== "idle" && (
+        <aside className="progress glass" aria-label="How this quote was made">
           <ol className="line">
             {stations.map((station) => (
               <li
@@ -618,28 +863,13 @@ export function SwapPage() {
             ))}
           </ol>
           {currentStation && <p className="progress-detail">{currentStation.detail}</p>}
-          <div className="progress-links">
-            {state.quotePayment && (
+          {state.quotePayment && (
+            <div className="proof-links proof-links-center">
               <a href={hashscanUrl(state.quotePayment)} target="_blank" rel="noreferrer">
                 Payment on HashScan
               </a>
-            )}
-            {chosen?.arkiv.entityKey && (
-              <a href={arkivEntityUrl(chosen.arkiv.entityKey)} target="_blank" rel="noreferrer">
-                Quote on Arkiv
-              </a>
-            )}
-            {state.swapPayment && (
-              <a href={hashscanUrl(state.swapPayment)} target="_blank" rel="noreferrer">
-                Swap fee on HashScan
-              </a>
-            )}
-            {hashLinks.map((link) => (
-              <a key={link.hash} href={link.url} target="_blank" rel="noreferrer">
-                {shorten(link.hash)} on {link.label}
-              </a>
-            ))}
-          </div>
+            </div>
+          )}
         </aside>
       )}
     </div>

@@ -6,31 +6,41 @@ import { createApp } from "./app.ts";
 import { mountDemo } from "./demo.ts";
 import { createStore } from "./store.ts";
 
+const MOCK_STAGE_MS = Number(process.env.MOCK_STAGE_MS ?? 8_000);
 const validUntil = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
 
-function fakeVenue(name: string, routes: () => Partial<Route>[], eta: number): Venue {
-  let polls = 0;
+const MOCK_ETH_PRICE = 2240;
+const HASH = (digit: string) => `0x${digit.repeat(64)}`;
+
+/** Walks an order through each stage on a clock, so the UI's feedback can be watched. */
+function fakeVenue(name: string, routes: () => Partial<Route>[], eta: number, share: number): Venue {
+  let preparedAt = 0;
   return {
     name,
     async quote(request) {
+      const sameChain = request.from.asset.split(":")[0] === request.to.asset.split(":")[0];
+      if (name === "uniswap" && !sameChain) return [];
+      const usdIn = Number(request.from.amount);
+      const out = (usdIn * share) / MOCK_ETH_PRICE;
+      const amountOut = BigInt(Math.round(out * 1e18));
       return routes().map((route) => ({
         venue: name,
         from: request.from.asset,
         to: request.to.asset,
-        amountIn: "1000000",
-        amountOut: "400000000000000",
-        minAmountOut: "398000000000000",
+        amountIn: String(Math.round(usdIn * 1e6)),
+        amountOut: amountOut.toString(),
+        minAmountOut: ((amountOut * 97n) / 100n).toString(),
         fees: {},
         etaSeconds: eta,
         validUntil: validUntil(180),
         venueData: null,
         depositable: name === "swapkit",
-        usd: { in: 2, out: 1.97 },
+        usd: { in: usdIn, out: usdIn * share },
         ...route,
       }));
     },
     async prepare(_route, request) {
-      polls = 0;
+      preparedAt = Date.now();
       const transfer = { kind: "swap" as const, chainId: 8453, to: "0x000000000000000000000000000000000000dEaD", data: "0x", value: "0x0" };
       if (name !== "swapkit") return { transactions: [transfer] };
       return {
@@ -39,16 +49,22 @@ function fakeVenue(name: string, routes: () => Partial<Route>[], eta: number): V
           asset: request.from.asset,
           address: "0x2e1ee6c27e66243A6301878E5036e327D48b64B3",
           amount: request.from.amount,
-          expiresAt: validUntil(86_400),
+          expiresAt: validUntil(1800),
           channelId: "mock-channel",
         },
       };
     },
     async track(input) {
-      polls += 1;
-      if (polls <= 1 && input.txHashes.length === 0 && input.prepared.deposit) return { status: "awaiting_deposit" };
-      if (polls < 3) return { status: "exchanging" };
-      return { status: "completed", amountReceived: "0.0004" };
+      const age = Date.now() - preparedAt;
+      if (age < MOCK_STAGE_MS && input.prepared.deposit) return { status: "awaiting_deposit" };
+      if (age < MOCK_STAGE_MS * 2) return { status: "confirming", txHashes: [HASH("a")] };
+      if (age < MOCK_STAGE_MS * 3) return { status: "exchanging", txHashes: [HASH("a"), "5i7QpCFZ2wpgSTV8okZbEgpitmxtZ91k8MMX5z6Mbcrr"] };
+      const received = (Number(input.route.amountOut) * 1.002) / 1e18;
+      return {
+        status: "completed",
+        amountReceived: received.toFixed(18),
+        txHashes: [HASH("a"), "5i7QpCFZ2wpgSTV8okZbEgpitmxtZ91k8MMX5z6Mbcrr", HASH("b")],
+      };
     },
   };
 }
@@ -58,12 +74,8 @@ let settled = 0;
 
 const app = createApp({
   venues: [
-    fakeVenue("uniswap", () => [{}], 30),
-    fakeVenue(
-      "swapkit",
-      () => [{ provider: "chainflip", amountOut: "399000000000000", minAmountOut: "395500000000000" }],
-      120,
-    ),
+    fakeVenue("uniswap", () => [{}], 30, 0.996),
+    fakeVenue("swapkit", () => [{ provider: "near" }, { provider: "flashnet" }], 49, 0.998),
   ],
   store: createStore(":memory:"),
   gateway: {
@@ -84,6 +96,7 @@ const app = createApp({
   },
   payTo: "0.0.999",
   trackIntervalMs: 500,
+  priceIntervalMs: 0,
 });
 
 let payment = 0;

@@ -85,6 +85,7 @@ export type JourneyEvent =
   | { type: "status"; status: string; amountReceived?: string | null; txHashes?: string[] }
   | { type: "failed"; message: string }
   | { type: "arkiv_keys"; keys: Record<string, string> }
+  | { type: "form_changed" }
   | { type: "reset" };
 
 const FINISHED = ["completed", "refunded", "failed", "expired"];
@@ -137,8 +138,13 @@ export function reduceJourney(state: JourneyState, event: JourneyEvent): Journey
       return {
         ...state,
         step: FINISHED.includes(event.status) ? "finished" : "tracking",
-        // SwapKit can lag a broadcast, but the line shouldn't move backwards.
-        swapStatus: event.status === "awaiting_deposit" && state.txHashes.length ? "confirming" : event.status,
+        // A venue can lag the chain, but progress shouldn't move backwards.
+        swapStatus:
+          event.status === "awaiting_deposit" && state.swapStatus && state.swapStatus !== "awaiting_deposit"
+            ? state.swapStatus
+            : event.status === "awaiting_deposit" && state.txHashes.length
+              ? "confirming"
+              : event.status,
         amountReceived: event.amountReceived ?? state.amountReceived,
         txHashes: event.txHashes?.length ? event.txHashes : state.txHashes,
       };
@@ -157,6 +163,9 @@ export function reduceJourney(state: JourneyState, event: JourneyEvent): Journey
           return entityKey ? { ...route, arkiv: { entityKey, pending: false } } : route;
         }),
       };
+    case "form_changed":
+      // Quotes answer the form as it was. An order already placed doesn't depend on it.
+      return state.swapId ? state : initialJourney;
     case "reset":
       return initialJourney;
   }
@@ -250,12 +259,26 @@ export function explorerTxUrl(chain: string, hash: string): string {
   return `${EXPLORERS[chain]?.base ?? EXPLORERS.base!.base}${hash}`;
 }
 
+export const explorerAddressUrl = (chain: string, address: string) =>
+  `${(EXPLORERS[chain]?.base ?? EXPLORERS.base!.base).replace(/tx\/$/, "address/")}${address}`;
+
+const EVM_EXPLORERS = ["eth", "base"];
+
 /** The first hash is the sender's and the last lands on the destination. Any between may be on another chain. */
 export function explorerLinks(hashes: string[], fromAsset: string, toAsset: string) {
   const ends = hashes.length > 2 ? [hashes[0]!, hashes.at(-1)!] : hashes;
-  return ends.map((hash, index) => {
+  return ends.flatMap((hash, index) => {
     const chain = (index === 0 ? fromAsset : toAsset).split(":")[0] ?? "";
-    return { hash, label: EXPLORERS[chain]?.label ?? "explorer", url: explorerTxUrl(chain, hash) };
+    // The provider's own chain can fill the last place until the delivery exists.
+    if (EVM_EXPLORERS.includes(chain) && !hash.startsWith("0x")) return [];
+    return [
+      {
+        hash,
+        kind: index === 0 ? ("deposit" as const) : ("delivery" as const),
+        label: EXPLORERS[chain]?.label ?? "explorer",
+        url: explorerTxUrl(chain, hash),
+      },
+    ];
   });
 }
 
@@ -312,7 +335,91 @@ export function formatRate(amountIn: string, amountOut: string, fromSymbol: stri
 
 export function formatUsd(value: number | undefined): string | null {
   if (value === undefined) return null;
-  return value < 0.01 ? "<$0.01" : `$${value.toFixed(2)}`;
+  if (value < 0.01) return "<$0.01";
+  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** What one unit of the bought asset costs at this quote. */
+export function unitPrice(amountOut: string, usdOut: number | undefined): string | null {
+  const bought = Number(amountOut);
+  if (usdOut === undefined || !(bought > 0)) return null;
+  return formatUsd(usdOut / bought);
+}
+
+export function swapCost(usd: { in: number; out: number } | undefined): string | null {
+  if (!usd || !(usd.in > 0) || usd.out >= usd.in) return null;
+  return `${formatUsd(usd.in - usd.out)} (${(((usd.in - usd.out) / usd.in) * 100).toFixed(2)}%)`;
+}
+
+export function formatEta(seconds: number): string | null {
+  if (!(seconds > 0)) return null;
+  if (seconds < 5) return "A few seconds";
+  if (seconds < 90) return `About ${Math.round(seconds)} seconds`;
+  return `About ${Math.round(seconds / 60)} minutes`;
+}
+
+export function isPriceable(amount: string): boolean {
+  return /^[0-9]*\.?[0-9]+$/.test(amount) && Number(amount) > 0;
+}
+
+export function bestAdvantage(routes: PublicRoute[]): string | null {
+  const best = bestRoute(routes);
+  const others = routes.filter((route) => route !== best && route.usd);
+  if (!best?.usd || others.length === 0) return null;
+  const next = Math.max(...others.map((route) => route.usd!.out));
+  return best.usd.out > next ? formatUsd(best.usd.out - next) : null;
+}
+
+export function receivedAboveMinimum(received: string | null, minimum: string): string | null {
+  const got = Number(received);
+  const floor = Number(minimum);
+  if (!(got > floor) || !(floor > 0)) return null;
+  return `${(((got - floor) / floor) * 100).toFixed(2)}%`;
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  awaiting_deposit: "Awaiting deposit",
+  exchanging: "Swapping",
+  executing: "In progress",
+};
+
+/** Records written before the labels hold lower-case codes, so both forms read the same. */
+export function statusLabel(status: string): string {
+  const label = STATUS_LABELS[status] ?? status;
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+export interface OrderStage {
+  id: "sent" | "swap" | "delivered";
+  name: string;
+  state: StationState;
+}
+
+export function orderStages(state: JourneyState): OrderStage[] {
+  const status = state.swapStatus ?? "";
+  const awaiting = status === "awaiting_deposit" || status === "expired" || !status;
+  const sent = awaiting ? "Send deposit" : state.deposit ? "Deposit received" : "Transaction sent";
+  const refused = status === "refunded" || status === "failed";
+  const finished = status === "completed";
+  return [
+    { id: "sent", name: sent, state: awaiting ? "current" : "done" },
+    { id: "swap", name: "Swapping", state: refused ? "failed" : finished ? "done" : awaiting ? "upcoming" : "current" },
+    { id: "delivered", name: "Delivered", state: finished ? "done" : "upcoming" },
+  ];
+}
+
+export interface WalletConnector {
+  id: string;
+  name: string;
+  type: string;
+  icon?: string | undefined;
+}
+
+/** Browsers announce each installed wallet. The generic entry only helps when none did. */
+export function walletOptions<T extends WalletConnector>(connectors: readonly T[]): T[] {
+  const discovered = connectors.filter((connector) => connector.id !== "injected");
+  if (discovered.length) return discovered;
+  return connectors.map((connector) => ({ ...connector, name: "Browser wallet" }));
 }
 
 export function formatDeadline(deadline: string, now: Date): string {
@@ -331,6 +438,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   "invalid sending address": "The refund address doesn't fit the chain you're sending from. Check it and try again.",
   "invalid receiving address": "The receiving address doesn't fit the chain you're swapping to. Check it and try again.",
   insufficient_balance: "That wallet address doesn't hold this amount. Add funds or enter the wallet you'll send from.",
+  price_busy: "Prices are busy. Try again in a few seconds.",
   invalid_recipient: "The swap provider refused that receiving address, because funds sent there would be lost.",
   invalid_swap_token: "This quote can't be used from here. Get new quotes and try again.",
   too_many_requotes: "This quote has been refreshed too many times. Get new quotes and try again.",
