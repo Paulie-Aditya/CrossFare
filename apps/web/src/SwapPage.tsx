@@ -243,11 +243,11 @@ function OrderPanel(props: {
         </div>
         <div className="order-send-to">
           <p className="order-lead">
-            Send exactly{" "}
+            {depositShort && more ? "Send at least " : "Send exactly "}
             <strong>
-              {deposit.amount} {symbolOf(deposit.asset)}
-            </strong>{" "}
-            on {chainNameOf(deposit.asset)} to:
+              {depositShort && more ? more : deposit.amount} {symbolOf(deposit.asset)}
+            </strong>
+            {depositShort && more ? " more" : ""} on {chainNameOf(deposit.asset)} to:
           </p>
           <div className="order-address">
             <span>{deposit.address}</span>
