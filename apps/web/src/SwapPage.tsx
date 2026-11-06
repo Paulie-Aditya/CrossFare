@@ -187,8 +187,8 @@ function OrderPanel(props: {
             </div>
           )}
           <div>
-            <dt>Arrives at</dt>
-            <dd title={recipient}>{shorten(recipient)}</dd>
+            <dt>Arrives at, on {chainNameOf(toAsset)}</dt>
+            <dd className="order-recipient">{recipient}</dd>
           </div>
         </dl>
       </div>

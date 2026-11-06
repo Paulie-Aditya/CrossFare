@@ -39,3 +39,7 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 ## 8. Full live test
 
 > completed the faucet, yes have to still fund usdc on base, let's do a swap to usdc on base. test it out, deploy on localhost, then I will check if everything is working. before that run a full test and document every part of it, what happened where, if it was successful or not, from the quote call payment to the arkiv write to the swap occuring, checking payment status and so on and so forth
+
+## 9. Receiving address and a swap with no wallet connected
+
+> where are you asking for the receiving address? for cross chain this is important; and run a real swap, like fixedfloat, where wallet doesn't have to be connected

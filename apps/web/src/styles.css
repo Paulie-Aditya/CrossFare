@@ -274,6 +274,8 @@ button:disabled { cursor: not-allowed; opacity: 0.6; }
 
 .order-facts dd { margin: 0; font: 700 1.3rem/1.2 var(--display); overflow-wrap: anywhere; }
 
+.order-facts dd.order-recipient { font: 600 1rem/1.4 var(--body); }
+
 .order-note { margin: 0; font-size: 0.95rem; }
 
 .order-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-top: 1rem; }
