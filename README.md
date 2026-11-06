@@ -6,11 +6,15 @@ For example: you tell your agent to swap 5 USDC on Ethereum to ETH on Base. It a
 
 Built at ETHGlobal Mumbai, Classic track.
 
-> **Live:** [crossfare.vercel.app](https://crossfare.vercel.app), with the API on EC2.
->
-> **Status:** two real swaps have completed, both run from a local server: 2 USDC on Ethereum delivered 1.997376 USDC on Base through the agent, and 5 USDC on Ethereum delivered 0.0022257 ETH on Base through the UI with no wallet connected. See the [full test report](docs/live-test-2026-11-06.md). The deployed site has paid for testnet quotes and opened a deposit address, but no real swap has run on it yet.
+**Try it:** [crossfare.vercel.app](https://crossfare.vercel.app). There's no account to create and no wallet to connect, though swaps use real funds on mainnet, so keep them small.
+
+**Demo video:** link to follow.
+
+> **Status:** live, with the UI on Vercel and the API on EC2. Two real swaps have completed, both run from a local server before deployment. The deployed site has paid for testnet quotes and opened a deposit address, but no real swap has run on it yet. See the [full test report](docs/live-test-2026-11-06.md), which also lists what hasn't been tested.
 
 ## Live evidence
+
+**Swap through the agent:** 2 USDC on Ethereum delivered 1.997376 USDC on Base.
 
 - **Settled x402 payment on Hedera:** [`0.0.9185802@1793955744.682983872`](https://hashscan.io/testnet/transaction/0.0.9185802@1793955744.682983872)
 - **Audit log:** [HCS topic `0.0.11336749`](https://hashscan.io/testnet/topic/0.0.11336749)
@@ -18,12 +22,18 @@ Built at ETHGlobal Mumbai, Classic track.
 - **Deposit on Ethereum:** [`0xe42c95…c2ea`](https://etherscan.io/tx/0xe42c9597f79765a406baab374fae2c1e35d2813d1b7a2881ad301fbdc404c2ea)
 - **Delivery on Base:** [`0x3dcbb7…a6bc`](https://basescan.org/tx/0x3dcbb74c8b5e5724063049977e195f71a85d826ef3c8346657c5d7aec8f7a6bc)
 
+**Swap through the UI, with no wallet connected:** 5 USDC on Ethereum delivered 0.0022257 ETH on Base.
+
+- **Quote on Arkiv:** [`0x6e560d…5aa0`](https://rabdi.explorer.arkiv.network/entity/0x6e560d372a560dfd29418ab5a076d86f833cadb20b4f3f3074096abe198a5aa0), kept until about 13 November 2026
+- **Deposit on Ethereum:** [`0x360be9…dac0`](https://etherscan.io/tx/0x360be9f057f35a6eb11946a996c3c471c311b43184a3466f8a8313543079dac0)
+- **Delivery on Base:** [`0xeccf95…2e50d`](https://basescan.org/tx/0xeccf951a2e396be57c402585e0b5e65f65d03f4329227d5989ae42af9bb2e50d)
+
 **Arkiv writer wallet:** `0xCA3994F906e54FB8707f529a506EEE755b636B52`. To list Crossfare's quotes with `@arkiv-network/sdk`:
 
 ```ts
 const client = createPublicClient({ chain: rabdi({ accessKey }), transport: http() });
 const page = await client
-  .select({ $key: true, quoteId: true, venue: true, status: true, amountReceived: true, createdAt: true })
+  .select({ $key: true, quoteId: true, venue: true, status: true, summary: true, amountReceived: true, createdAt: true })
   .where(eq("project", "crossfare"))
   .ownedBy("0xCA3994F906e54FB8707f529a506EEE755b636B52")
   .orderBy(desc("createdAt"))
@@ -32,6 +42,24 @@ const page = await client
 ```
 
 ## How it works
+
+```mermaid
+flowchart TB
+    agent["Reference agent"] --> api
+    browser["Browser"] --> vercel["Web UI on Vercel"]
+    vercel -->|"forwards /v1 and /demo"| api
+    subgraph ec2["AWS EC2, behind nginx"]
+        api["Crossfare API"] --> db[("SQLite: payments, quotes, swaps")]
+    end
+    api --> hedera["Hedera testnet: x402 payments, HCS audit log"]
+    api --> arkiv["Arkiv testnet: public quote records"]
+    api --> uniswap["Uniswap API: same-chain routes"]
+    api --> swapkit["SwapKit API: cross-chain routes, status, screening"]
+```
+
+Swapped funds never pass through Crossfare. They go from the caller's wallet to the venue.
+
+One swap, from an agent's point of view:
 
 ```mermaid
 sequenceDiagram
@@ -89,12 +117,13 @@ Prices are placeholders, settled in testnet USDC. Set `SWAP_PRICE_USDC` to charg
 | `packages/core` | Asset registry, route ranking, venue adapters |
 | `apps/api` | Hono service, payment guard, x402 gateway, Arkiv publisher, HCS audit log |
 | `apps/agent` | Reference agent and spending controls |
-| `apps/web` | Swap form, order page and public quote record |
+| `apps/web` | Swap form, token picker, order page, swap history. Deploys to Vercel |
 | `scripts` | Setup and read-only checks |
-| `deploy` | Service and HTTPS configuration for EC2 |
+| `deploy` | Service, nginx and Caddy configuration for EC2 |
 | `arkiv/` | Arkiv prize documents |
+| `docs/` | [Requirements](docs/prd.md), [developer prompts](docs/prompts.md), [test report](docs/live-test-2026-11-06.md) and deployment guides |
 
-**Where the Uniswap API is called:** [`packages/core/src/venues/uniswap.ts`](packages/core/src/venues/uniswap.ts): `/quote` at [line 156](packages/core/src/venues/uniswap.ts#L156), `/check_approval` at [line 202](packages/core/src/venues/uniswap.ts#L202) and `/swap` at [line 212](packages/core/src/venues/uniswap.ts#L212).
+**Where the Uniswap API is called:** [`packages/core/src/venues/uniswap.ts`](packages/core/src/venues/uniswap.ts): `/quote` at [line 158](packages/core/src/venues/uniswap.ts#L158), `/check_approval` at [line 204](packages/core/src/venues/uniswap.ts#L204) and `/swap` at [line 214](packages/core/src/venues/uniswap.ts#L214).
 
 ## Setup
 
@@ -125,16 +154,24 @@ You need:
 
 With `AGENT_HEDERA_ACCOUNT` set, the UI at `http://localhost:8787` works once the web app is built with `pnpm --filter @crossfare/web build`.
 
-To work on the UI without any keys, run a fake API that spends nothing, then the dev server:
+To work on the UI without any keys, run a fake API that spends nothing, then the dev server. In the fake API, typing 7 as the amount sends too little and typing 8 sends too much, so those screens can be seen:
 
 ```sh
 node apps/api/src/dev-mock.ts
 pnpm --filter @crossfare/web dev
 ```
 
+To work on the UI against the live API instead, with real tokens and prices, run:
+
+```sh
+CROSSFARE_API_URL=https://crossfare.vercel.app pnpm --filter @crossfare/web dev
+```
+
+Each quote there pays a real testnet fee and writes to Arkiv, and counts against the demo's limits.
+
 ## Deploy
 
-The API runs on EC2 ([steps](docs/deploy-ec2.md)), and the UI can run from there too or on [Vercel](docs/deploy-vercel.md).
+The live site runs the API on [EC2](docs/deploy-ec2.md) and the UI on [Vercel](docs/deploy-vercel.md), which redeploys when `main` changes. A change to the API needs the update steps in the EC2 guide.
 
 ## Built with
 
@@ -142,7 +179,7 @@ Open-source libraries, used as published: [Hono](https://hono.dev), [`@x402/core
 
 ## AI use
 
-AI wrote most of this code under the developer's direction. [`AI_USAGE.md`](AI_USAGE.md) says where and how, and [`docs/prompts.md`](docs/prompts.md) records the prompts.
+AI wrote most of this code under the developer's direction. [`AI_USAGE.md`](AI_USAGE.md) says where and how, [`docs/prompts.md`](docs/prompts.md) records the prompts, and [`docs/prd.md`](docs/prd.md) is the requirements document that directed the work.
 
 ## License
 

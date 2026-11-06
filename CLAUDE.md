@@ -3,7 +3,7 @@
 Open-source cross-chain swap API that AI agents pay for per call: x402 payment on Hedera, quotes published on Arkiv, execution through the SwapKit API or Uniswap. Built for ETHGlobal Mumbai (Classic track).
 
 - **Source of truth:** the [Crossfare PRD](https://claude.ai/artifact/F6egMmxjGd4pvKKd3pAWoZ). Requirement IDs (`FR-n`) refer to it. If the code needs to differ from the PRD, say so instead of drifting silently.
-- **PRD stays private for now:** do not copy it or its contents into this public repo yet. At submission, commit a copy without the SwapKit terms analysis and CoinDrop plans, and state what was removed, to meet ETHGlobal's rule on planning artifacts.
+- **Public PRD copy:** [`docs/prd.md`](docs/prd.md) is a copy of the PRD without the SwapKit terms analysis and CoinDrop plans, and it states what was removed. Keep those two out of the repo. When a decision changes the PRD, update both.
 - **Team:** solo. AI writes the code, directed by the developer, who steps in manually to fix issues. The developer records the demo video.
 - **Pushing:** push to `origin` after each commit. The public history is evidence of steady progress.
 - **Deployment:** the developer deploys the API to AWS EC2 and the web app to Vercel.
@@ -69,7 +69,7 @@ Sources: [event details](https://ethglobal.com/events/mumbai/info/details), [gen
 | `LICENSE` | Arkiv, Uniswap, PRD | MIT |
 | `README.md` | All | See the checklist below |
 | `AI_USAGE.md` | ETHGlobal, Arkiv | Where and how AI was used, by file or area, and what the team directed and reviewed |
-| `docs/` specs, prompts and plans | ETHGlobal | Every spec file, prompt and planning artifact that directed the AI |
+| `docs/` specs, prompts and plans | ETHGlobal | Every spec file, prompt and planning artifact that directed the AI, including `docs/prd.md` |
 | `FEEDBACK.md` | Uniswap | Honest feedback on building with Uniswap. The name is exact and upper-case |
 | `arkiv/schema.md` | Arkiv | Entities, queried fields, owner and expiry |
 | `arkiv/friction.md` | Arkiv | What got in the way, with reproduction steps |

@@ -1,6 +1,6 @@
 # Deploy on AWS EC2
 
-One small instance runs the API, with Caddy in front for HTTPS. It can serve the UI too, or the UI can run on [Vercel](deploy-vercel.md), which forwards API requests here. These steps are written for Ubuntu 24.04 and haven't been run on a real instance yet. A local rehearsal with only the variables below and no web build did start, load the token list and pay for a testnet quote.
+One small instance runs the API, with Caddy in front for HTTPS. It can serve the UI too, or the UI can run on [Vercel](deploy-vercel.md), which forwards API requests here. These steps are written for Ubuntu 24.04. The live site runs this way, using the nginx path in step 6 on an instance shared with another service. The Caddy path hasn't been run on a real instance.
 
 **Using an instance you already have?** Check three things first:
 

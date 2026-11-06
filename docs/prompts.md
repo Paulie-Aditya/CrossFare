@@ -96,3 +96,7 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 
 > it's up
 
+## 22. The PRD in the repo, and docs for the live site
+
+> yep, looks like everything is done from your side, update the prd and make it accessible in the repo itself, post that I will polish the frontend and fix issues where necessary, update readme and other docs now that everything is live. later I will give you the demo video link so that we can embed it here itself.
+
