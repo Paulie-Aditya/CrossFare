@@ -6,7 +6,28 @@ For example: you tell your agent to swap 5 USDC on Ethereum to ETH on Base. It a
 
 Built at ETHGlobal Mumbai, Classic track.
 
-> **Status:** in active development. The API, agent and UI are covered by tests against mocked services. They have not yet completed a live run, so this README has no live URL or transaction links yet.
+> **Status:** the full loop has run live once on localhost: a real swap of 2 USDC on Ethereum delivered 1.997376 USDC on Base. See the [full test report](docs/live-test-2026-11-06.md). It isn't deployed yet, so there's no public URL.
+
+## Live evidence
+
+- **Settled x402 payment on Hedera:** [`0.0.9185802@1793955744.682983872`](https://hashscan.io/testnet/transaction/0.0.9185802@1793955744.682983872)
+- **Audit log:** [HCS topic `0.0.11336749`](https://hashscan.io/testnet/topic/0.0.11336749)
+- **Quote on Arkiv, quoted against received:** [`0x268005…54c5`](https://rabdi.explorer.arkiv.network/entity/0x26800551ca60a7f504a84f0e02cd068b62c98b4eb597a69262f5138a399c54c5), kept until about 13 November 2026
+- **Deposit on Ethereum:** [`0xe42c95…c2ea`](https://etherscan.io/tx/0xe42c9597f79765a406baab374fae2c1e35d2813d1b7a2881ad301fbdc404c2ea)
+- **Delivery on Base:** [`0x3dcbb7…a6bc`](https://basescan.org/tx/0x3dcbb74c8b5e5724063049977e195f71a85d826ef3c8346657c5d7aec8f7a6bc)
+
+**Arkiv writer wallet:** `0xCA3994F906e54FB8707f529a506EEE755b636B52`. To list Crossfare's quotes with `@arkiv-network/sdk`:
+
+```ts
+const client = createPublicClient({ chain: rabdi({ accessKey }), transport: http() });
+const page = await client
+  .select({ $key: true, quoteId: true, venue: true, status: true, amountReceived: true, createdAt: true })
+  .where(eq("project", "crossfare"))
+  .ownedBy("0xCA3994F906e54FB8707f529a506EEE755b636B52")
+  .orderBy(desc("createdAt"))
+  .limit(50)
+  .fetch();
+```
 
 ## How it works
 
@@ -70,7 +91,7 @@ Prices are placeholders, settled in testnet USDC. Set `SWAP_PRICE_USDC` to charg
 | `deploy` | Service and HTTPS configuration for EC2 |
 | `arkiv/` | Arkiv prize documents |
 
-**Where the Uniswap API is called:** [`packages/core/src/venues/uniswap.ts`](packages/core/src/venues/uniswap.ts), through `/quote`, `/check_approval` and `/swap`.
+**Where the Uniswap API is called:** [`packages/core/src/venues/uniswap.ts`](packages/core/src/venues/uniswap.ts): `/quote` at [line 156](packages/core/src/venues/uniswap.ts#L156), `/check_approval` at [line 202](packages/core/src/venues/uniswap.ts#L202) and `/swap` at [line 212](packages/core/src/venues/uniswap.ts#L212).
 
 ## Setup
 

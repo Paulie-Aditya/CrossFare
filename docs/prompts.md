@@ -35,3 +35,7 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 ## 7. First live run
 
 > check the env I have added some keys and have added funds to 0xae2054732a1f85f6389f58044d42a79f0b292fad; yet to do this, you can do it >  Set up Hedera: this uses testnet funds only. once done let me know if anything else is pending, then run the test for the actual swap , if all works out I will deploy it on ec2 and we can do a live one, post which if issues arise, we will solve them
+
+## 8. Full live test
+
+> completed the faucet, yes have to still fund usdc on base, let's do a swap to usdc on base. test it out, deploy on localhost, then I will check if everything is working. before that run a full test and document every part of it, what happened where, if it was successful or not, from the quote call payment to the arkiv write to the swap occuring, checking payment status and so on and so forth
