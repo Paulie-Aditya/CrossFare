@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { get } from "./api.ts";
-import { arkivEntityUrl, shorten } from "./journey.ts";
+import { arkivEntityUrl, formatAmount, shorten } from "./journey.ts";
 
 interface RecordRow {
   entityKey: string;
@@ -29,16 +29,18 @@ export function QuoteRecord() {
 
   return (
     <div className="record">
-      <h1>Every quote, on the public record.</h1>
-      <p className="lede">
-        These rows come straight from Arkiv, written by Crossfare's own wallet. Quotes disappear shortly after they
-        expire. Completed swaps stay for 7 days, with the amount received beside the amount quoted.
-      </p>
-      {error && <p className="message message-error" role="alert">{error}</p>}
+      <header className="intro">
+        <h1>Every quote, on the record.</h1>
+        <p>
+          These rows come straight from Arkiv, written by Crossfare's own wallet. Quotes disappear shortly after they
+          expire. Completed swaps stay for 7 days, with the amount received beside the amount quoted.
+        </p>
+      </header>
+      {error && <p className="message message-error glass" role="alert">{error}</p>}
       {!error && rows === null && <p className="record-empty">Reading from Arkiv</p>}
       {rows?.length === 0 && <p className="record-empty">No live quotes right now. Get a quote on the Swap page and it appears here.</p>}
       {rows && rows.length > 0 && (
-        <div className="record-scroll">
+        <div className="record-panel glass">
           <table>
             <thead>
               <tr>
@@ -55,9 +57,9 @@ export function QuoteRecord() {
                 <tr key={row.entityKey}>
                   <td>{label(row.fromAsset)} to {label(row.toAsset)}</td>
                   <td>{row.venue}{row.payload?.provider ? `, ${row.payload.provider.replaceAll("_", " ")}` : ""}</td>
-                  <td className="numeric">{row.payload?.minAmountOut ?? "Not recorded"}</td>
-                  <td className="numeric">{row.amountReceived ?? "Not yet"}</td>
-                  <td>{row.status}</td>
+                  <td className="numeric">{row.payload?.minAmountOut ? formatAmount(row.payload.minAmountOut) : "Not recorded"}</td>
+                  <td className="numeric">{row.amountReceived ? formatAmount(row.amountReceived) : "Not yet"}</td>
+                  <td><span className={`status status-${row.status}`}>{row.status}</span></td>
                   <td><a href={arkivEntityUrl(row.entityKey)} target="_blank" rel="noreferrer">{shorten(row.entityKey)}</a></td>
                 </tr>
               ))}

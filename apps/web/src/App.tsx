@@ -31,11 +31,11 @@ export function App() {
   const [page, setPage] = useState<"swap" | "record">("swap");
   return (
     <>
-      <header className="masthead">
+      <header className="masthead glass">
         <div className="brand" aria-label="Crossfare">
-          <svg viewBox="0 0 48 20" width="48" height="20" aria-hidden="true">
-            <path d="M0 16 48 4" stroke="var(--signal)" strokeWidth="5" />
-            <circle cx="24" cy="10" r="6.5" fill="var(--enamel)" stroke="#fff" strokeWidth="3" />
+          <svg viewBox="0 0 32 32" width="24" height="24" aria-hidden="true">
+            <path d="M5 23C11 23 11 9 17 9h10" fill="none" stroke="var(--mint)" strokeWidth="3.4" strokeLinecap="round" />
+            <path d="M5 9c6 0 6 14 12 14h10" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" />
           </svg>
           <span>Crossfare</span>
         </div>

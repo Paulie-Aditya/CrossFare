@@ -49,3 +49,9 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 > wording of this is wrong: Your wallet address on Ethereum
 > 0xEBdFd05075d84435de2d9A05336E7b2814e10cb5
 > It must already hold the amount. Refunds go back here. ; what if I want to deposit from an exchange?
+
+## 11. Order window, prices and a glass UI
+
+> make this expire in 30 mins; not 72h; show the actual price as well next to the quote, like in metamask; also the send your deposit page did not wait for the deposit to happen, it might be a race condition because the prompt was running while I was checking the localhost, but worth it to check
+
+> ui is also terrible can we make the ui glassy and take inspiration from good designer websites, this looks janky, I will polish in the end if needed
