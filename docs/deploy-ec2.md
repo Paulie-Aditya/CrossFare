@@ -10,7 +10,7 @@ which node && node --version         # the service runs /usr/bin/node, which mus
 sudo ss -ltnp | grep -E ':(80|443) ' # Caddy needs these ports free
 ```
 
-If something already holds ports 80 and 443, such as nginx, proxy a new name to `127.0.0.1:8787` from it instead of installing Caddy.
+Also check that nothing already uses port 8787, and don't upgrade a system Node.js that another app relies on. If nginx already holds ports 80 and 443, skip Caddy and follow "If nginx is already running" in step 6.
 
 ## 1. Create the instance
 
@@ -93,6 +93,19 @@ sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
 sudo nano /etc/caddy/Caddyfile   # replace crossfare.example.com with your name
 sudo systemctl reload caddy
 ```
+
+**If nginx is already running,** don't install or start Caddy. Add a site instead, which leaves the existing ones untouched:
+
+```sh
+sudo cp deploy/crossfare.nginx.conf /etc/nginx/sites-available/crossfare
+sudo sed -i 's/crossfare.example.com/<your name>/' /etc/nginx/sites-available/crossfare
+sudo ln -s /etc/nginx/sites-available/crossfare /etc/nginx/sites-enabled/crossfare
+sudo nginx -t && sudo systemctl reload nginx
+sudo apt-get install -y certbot python3-certbot-nginx   # if certbot isn't there already
+sudo certbot --nginx -d <your name>
+```
+
+`nginx -t` stops a bad config from reaching the running sites.
 
 Check `https://<your name>/healthz`. If the UI is on Vercel, put the same name in `apps/web/vercel.json`. Otherwise, open `https://<your name>` to see the UI. Then point the agent at it by setting `CROSSFARE_API_URL` in your local `.env`.
 
