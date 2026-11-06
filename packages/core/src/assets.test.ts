@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { getAsset, isValidAddress, listAssets, parseAssetId, toBaseUnits } from "./assets.ts";
+import { displaySymbol, getAsset, isValidAddress, listAssets, parseAssetId, toBaseUnits } from "./assets.ts";
 
 describe("parseAssetId", () => {
   it("splits a chain:symbol id", () => {
     expect(parseAssetId("base:usdc")).toEqual({ chain: "base", symbol: "usdc" });
   });
 
-  it.each(["usdc", "base:", ":usdc", "base:usdc:x", "BASE:USDC"])("rejects %s", (id) => {
+  it.each(["usdc", "base:", ":usdc", "base:usdc:x", "BASE:USDC", "base:us dc"])("rejects %s", (id) => {
     expect(() => parseAssetId(id)).toThrow(/invalid asset id/i);
   });
 });
@@ -95,3 +95,19 @@ describe("isValidAddress", () => {
     expect(isValidAddress(asset, address)).toBe(false);
   });
 });
+
+describe("display details", () => {
+  it("gives built-in assets a logo", () => {
+    expect(getAsset("eth:usdc").logo).toBe("https://tokens.swapkit.dev/images/eth.usdc-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.png");
+  });
+
+  it("accepts an id that holds a contract", () => {
+    expect(parseAssetId("arb:1inch-0xabc")).toEqual({ chain: "arb", symbol: "1inch-0xabc" });
+  });
+
+  it("writes a symbol in capitals unless the ticker has its own casing", () => {
+    expect(displaySymbol("usdc")).toBe("USDC");
+    expect(displaySymbol("cbBTC")).toBe("cbBTC");
+  });
+});
+

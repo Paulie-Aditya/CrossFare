@@ -99,6 +99,8 @@ export interface SwapKitOptions {
 async function refusalCode(response: Response): Promise<string | undefined> {
   const body = (await response.json().catch(() => null)) as { error?: string; data?: { code?: string } } | null;
   if (body?.error === "insufficientBalance") return "insufficient_balance";
+  // SwapKit blanks addresses it recognises as samples, then refuses the route as having none.
+  if (body?.error === "invalidRoute") return "sample_address";
   if (body?.data?.code === "invalid_recipient_address") return "invalid_recipient";
   return undefined;
 }
@@ -200,8 +202,8 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
         };
       };
 
-      if (source.uniswap) {
-        const chainId = source.uniswap.chainId;
+      if (source.evmChainId !== undefined) {
+        const chainId = source.evmChainId;
         const toUnsigned = (tx: ApiEvmTx, kind: UnsignedTransaction["kind"]): UnsignedTransaction => ({
           kind,
           chainId,
@@ -224,6 +226,10 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
         };
       }
 
+      // Any other route needs a signature, and its target could be a program: funds sent there may be lost.
+      if (!route.depositable) {
+        throw new VenueError(VENUE, 422, `${route.provider ?? "route"} needs a wallet signature`, "wallet_required");
+      }
       const address = swap.targetAddress ?? swap.inboundAddress;
       if (!address) throw new VenueError(VENUE, 502, "/v3/swap returned no deposit address");
       return { venueSwapId: swap.swapId, transactions: [], deposit: depositDetails(address) };

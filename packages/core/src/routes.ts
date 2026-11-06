@@ -1,4 +1,4 @@
-import { getAsset, type AssetId } from "./assets.ts";
+import { chainName, displaySymbol, getAsset, type AssetId } from "./assets.ts";
 
 /**
  * One way to fill a quote request, normalized across venues (FR-12).
@@ -52,11 +52,11 @@ export function withUsdValues(routes: readonly Route[]): Route[] {
       const ratio = Number(route.amountOut) / Number(priced.amountOut);
       return { ...route, usd: { in: priced.usd.in, out: priced.usd.out * ratio } };
     }
-    if (STABLECOINS.includes(getAsset(route.from).symbol)) {
+    if (STABLECOINS.includes(getAsset(route.from).symbol.toLowerCase())) {
       const value = humanAmount(route.amountIn, route.from);
       return { ...route, usd: { in: value, out: value } };
     }
-    if (STABLECOINS.includes(getAsset(route.to).symbol)) {
+    if (STABLECOINS.includes(getAsset(route.to).symbol.toLowerCase())) {
       const value = humanAmount(route.amountOut, route.to);
       return { ...route, usd: { in: value, out: value } };
     }
@@ -64,15 +64,14 @@ export function withUsdValues(routes: readonly Route[]): Route[] {
   });
 }
 
-const CHAIN_NAMES: Record<string, string> = { base: "Base", eth: "Ethereum", btc: "Bitcoin", sol: "Solana", xrp: "XRP Ledger" };
 const amountLine = (amount: string, id: AssetId) => {
   const { symbol, chain } = getAsset(id);
   const value = humanAmount(amount, id).toLocaleString("en-US", { maximumSignificantDigits: 5, useGrouping: false });
-  return `${value} ${symbol.toUpperCase()} on ${CHAIN_NAMES[chain] ?? chain}`;
+  return `${value} ${displaySymbol(symbol)} on ${chainName(chain)}`;
 };
 const assetLine = (id: AssetId) => {
   const { symbol, chain } = getAsset(id);
-  return `${symbol.toUpperCase()} on ${CHAIN_NAMES[chain] ?? chain}`;
+  return `${displaySymbol(symbol)} on ${chainName(chain)}`;
 };
 
 /** One line for the public record, so an entry reads as history rather than a database row. */

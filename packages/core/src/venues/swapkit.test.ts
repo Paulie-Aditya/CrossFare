@@ -180,7 +180,7 @@ describe("swapkit prepare", () => {
         }),
     });
     const [route] = await venue(fetch).quote(btcRequest);
-    const prepared = await venue(fetch).prepare(route!, btcRequest);
+    const prepared = await venue(fetch).prepare({ ...route!, depositable: true }, btcRequest);
     expect(prepared.transactions).toEqual([]);
     expect(prepared.deposit).toEqual({
       asset: "btc:btc",
@@ -209,7 +209,7 @@ describe("swapkit prepare", () => {
         }),
     });
     const [route] = await venue(fetch).quote(btcRequest);
-    const prepared = await venue(fetch).prepare(route!, btcRequest);
+    const prepared = await venue(fetch).prepare({ ...route!, depositable: true }, btcRequest);
     expect(prepared.deposit).toMatchObject({
       address: "bc1qchannel",
       expiresAt: new Date(1793970000 * 1000).toISOString(),
@@ -227,7 +227,7 @@ describe("swapkit prepare", () => {
       "/v3/swap": () => json({ swapId: "swap-2", sellAmount: "0.001" }),
     });
     const [route] = await venue(fetch).quote(btcRequest);
-    await expect(venue(fetch).prepare(route!, btcRequest)).rejects.toBeInstanceOf(VenueError);
+    await expect(venue(fetch).prepare({ ...route!, depositable: true }, btcRequest)).rejects.toBeInstanceOf(VenueError);
   });
 
   it("raises VenueError when /v3/swap fails", async () => {
@@ -584,6 +584,38 @@ describe("track stages", () => {
     expect(sent).not.toHaveProperty("sourceAddress");
     expect(sent).not.toHaveProperty("destinationAddress");
     expect(sent).not.toHaveProperty("refundAddress");
+  });
+});
+
+
+describe("sources Crossfare can't sign on", () => {
+  const SOL = "So11111111111111111111111111111111111111112";
+  const request: QuoteRequest = {
+    from: { asset: "sol:sol", amount: "1", address: SOL },
+    to: { asset: "base:eth", address: "0xC9bebBA9f481b12cE6f3EA54c4B182c9636ec421" },
+    mode: "exact_in",
+    slippageBps: 300,
+  };
+  const route = (depositable: boolean) => ({ venue: "swapkit", from: "sol:sol", to: "base:eth", amountIn: "1", amountOut: "1", minAmountOut: "1", fees: {}, etaSeconds: 1, validUntil: "", depositable, venueData: { routeId: "r1" } });
+
+  it("offers a plain-transfer route as a deposit", async () => {
+    const fetch = fakeFetch({ "/v3/swap": () => json({ swapId: "s", txHint: "simpleTransfer", targetAddress: "deposit-here", sellAmount: "1" }) });
+    const prepared = await venue(fetch).prepare(route(true), request);
+    expect(prepared.deposit?.address).toBe("deposit-here");
+  });
+
+  it("refuses any other route, because its target isn't a deposit address and funds sent there could be lost", async () => {
+    const fetch = fakeFetch({ "/v3/swap": () => json({ swapId: "s", txHint: "contractCall", tx: "base64tx", targetAddress: "a-program" }) });
+    await expect(venue(fetch).prepare(route(false), request)).rejects.toMatchObject({ name: "VenueError", code: "wallet_required" });
+  });
+});
+
+describe("addresses SwapKit won't accept", () => {
+  it("names a sample address as the caller's to fix, rather than a venue failure", async () => {
+    const route = { venue: "swapkit", from: "btc:btc", to: "base:eth", amountIn: "1", amountOut: "1", minAmountOut: "1", fees: {}, etaSeconds: 1, validUntil: "", depositable: true, venueData: { routeId: "r1" } };
+    const request: QuoteRequest = { from: { asset: "btc:btc", amount: "1", address: "bc1qsample" }, to: { asset: "base:eth", address: "0xC9bebBA9f481b12cE6f3EA54c4B182c9636ec421" }, mode: "exact_in", slippageBps: 300 };
+    const fetch = fakeFetch({ "/v3/swap": () => json({ error: "invalidRoute", message: "they cannot be dummy addresses" }, 400) });
+    await expect(venue(fetch).prepare(route, request)).rejects.toMatchObject({ code: "sample_address" });
   });
 });
 
