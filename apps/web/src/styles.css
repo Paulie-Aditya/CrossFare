@@ -541,6 +541,21 @@ h2 { font-size: 21px; font-weight: 600; letter-spacing: -0.025em; }
   font-size: 13.5px;
 }
 
+.order-short {
+  display: grid;
+  gap: 5px;
+  padding: 11px 14px;
+  border: 1px solid rgba(255, 200, 120, 0.45);
+  border-radius: 14px;
+  background: rgba(255, 190, 90, 0.1);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.order-short strong { font-weight: 600; }
+
+.delivered-facts em.delivered-notice { color: #ffd591; }
+
 .radar { position: relative; flex: none; width: 10px; height: 10px; margin: 0 4px; border-radius: 50%; background: var(--mint); }
 
 .radar::before, .radar::after {

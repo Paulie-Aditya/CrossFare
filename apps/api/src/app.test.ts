@@ -625,6 +625,10 @@ describe("swap status", () => {
       status: "confirming",
       txHashes: [],
       amountReceived: null,
+      amountSent: null,
+      depositShort: null,
+      refundReason: null,
+      partialRefund: false,
       arkiv: { entityKey: `0xentity-${quoteId}` },
     });
   });
@@ -787,32 +791,32 @@ describe("deposit detection", () => {
   }
 
   it("moves on as soon as the chain shows the deposit, before the venue notices", async () => {
-    const depositSeen = vi.fn(async () => true);
-    const { poll } = await openOrder({ depositSeen }, async () => ({ status: "awaiting_deposit" }));
+    const depositBalance = vi.fn(async () => "5");
+    const { poll } = await openOrder({ depositBalance }, async () => ({ status: "awaiting_deposit" }));
     expect(await poll()).toBe("confirming");
-    expect(depositSeen).toHaveBeenCalledWith(expect.objectContaining(deposit));
+    expect(depositBalance).toHaveBeenCalledWith(expect.objectContaining(deposit));
   });
 
   it("does not go back to awaiting when the venue lags the chain", async () => {
-    let seen = true;
-    const { poll } = await openOrder({ depositSeen: async () => seen }, async () => ({ status: "awaiting_deposit" }));
+    let seen: string | null = "5";
+    const { poll } = await openOrder({ depositBalance: async () => seen }, async () => ({ status: "awaiting_deposit" }));
     await poll();
-    seen = false;
+    seen = null;
     expect(await poll()).toBe("confirming");
   });
 
   it("stays awaiting when the chain shows nothing", async () => {
-    const { poll } = await openOrder({ depositSeen: async () => false }, async () => ({ status: "awaiting_deposit" }));
+    const { poll } = await openOrder({ depositBalance: async () => null }, async () => ({ status: "awaiting_deposit" }));
     expect(await poll()).toBe("awaiting_deposit");
   });
 
   it("survives a chain reader failing", async () => {
-    const { poll } = await openOrder({ depositSeen: async () => { throw new Error("rpc down"); } }, async () => ({ status: "awaiting_deposit" }));
+    const { poll } = await openOrder({ depositBalance: async () => { throw new Error("rpc down"); } }, async () => ({ status: "awaiting_deposit" }));
     expect(await poll()).toBe("awaiting_deposit");
   });
 
   it("still advances when the venue can't be reached", async () => {
-    const { poll } = await openOrder({ depositSeen: async () => true }, async () => { throw new Error("fetch failed"); });
+    const { poll } = await openOrder({ depositBalance: async () => "5" }, async () => { throw new Error("fetch failed"); });
     expect(await poll()).toBe("confirming");
   });
 });
@@ -935,6 +939,87 @@ describe("GET /v1/assets", () => {
     expect(response.status).toBe(422);
     expect(await response.json()).toEqual({ error: "wallet_required" });
     expect(settle.mock.calls.length).toBe(settledBefore);
+  });
+});
+
+describe("a deposit that differs from the quote", () => {
+  const WINDOW_MS = 30 * 60_000;
+  const deposit = { asset: "eth:usdc", address: "0xdeposit", amount: "5", minAmount: "4.85", channelId: "c1", expiresAt: "2026-11-09T10:00:00.000Z" };
+
+  async function order(balance: () => string | null, track: Venue["track"] = async () => ({ status: "awaiting_deposit" })) {
+    const venue = fakeVenue("swapkit", [route("swapkit", "1000000000000000", { from: "eth:usdc", to: "base:eth", amountIn: "5000000" })]);
+    venue.prepare.mockResolvedValue({ transactions: [], deposit });
+    (venue as Venue).track = track;
+    const target = app([venue], { depositBalance: async () => balance(), trackIntervalMs: 0, depositWatchMs: 0 });
+    const quoted = (await (await postQuote(target, { ...quoteBody, from: { ...quoteBody.from, asset: "eth:usdc" } })).json()) as any;
+    const made = (await (
+      await target.request("/v1/swap", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...PAID },
+        body: JSON.stringify({ quoteId: quoted.routes[0].quoteId, swapToken: quoted.swapToken }),
+      })
+    ).json()) as any;
+    return { made, poll: async () => (await (await target.request(`/v1/swaps/${made.swapId}`)).json()) as any };
+  }
+
+  it("keeps the provider's deadline as the refund date, beyond the 30-minute order window", async () => {
+    const { made } = await order(() => null);
+    expect(made.deposit.refundBy).toBe("2026-11-09T10:00:00.000Z");
+    expect(new Date(made.deposit.expiresAt).getTime()).toBe(NOW.getTime() + WINDOW_MS);
+  });
+
+  it("moves on for a deposit inside the band, and records what arrived", async () => {
+    const { poll } = await order(() => "4.9");
+    expect(await poll()).toMatchObject({ status: "confirming", amountSent: "4.9" });
+  });
+
+  it("moves on for more than the quote", async () => {
+    const { poll } = await order(() => "8");
+    expect(await poll()).toMatchObject({ status: "confirming", amountSent: "8" });
+  });
+
+  it("doesn't call a deposit below the band received, and says how much it saw", async () => {
+    const { poll } = await order(() => "4");
+    expect(await poll()).toMatchObject({ status: "awaiting_deposit", depositShort: "4", minAmount: "4.85", refundBy: deposit.expiresAt });
+  });
+
+  it("recognises a top-up that reaches the band", async () => {
+    let balance = "4";
+    const { poll } = await order(() => balance);
+    await poll();
+    balance = "4.85";
+    const body = await poll();
+    expect(body).toMatchObject({ status: "confirming", amountSent: "4.85" });
+    expect(body.depositShort).toBeNull();
+  });
+
+  it("doesn't expire an order holding funds, because tracking must continue until the refund", async () => {
+    const { poll } = await order(() => "4");
+    await poll();
+    currentTime = new Date(NOW.getTime() + WINDOW_MS + 60_000);
+    expect((await poll()).status).toBe("awaiting_deposit");
+  });
+
+  it("still expires an order with nothing in it", async () => {
+    const { poll } = await order(() => null);
+    currentTime = new Date(NOW.getTime() + WINDOW_MS + 60_000);
+    expect((await poll()).status).toBe("expired");
+  });
+
+  it("treats a provider-reported deposit below the band as short, where the chain can't be read", async () => {
+    const { poll } = await order(() => null, async () => ({ status: "confirming", amountSent: "4" }));
+    expect(await poll()).toMatchObject({ status: "awaiting_deposit", depositShort: "4" });
+  });
+
+  it("reports a refund and its reason", async () => {
+    const { poll } = await order(() => "4", async () => ({ status: "refunded", amountSent: "4", refundReason: "INCOMPLETE_DEPOSIT" }));
+    expect(await poll()).toMatchObject({ status: "refunded", amountSent: "4", refundReason: "INCOMPLETE_DEPOSIT" });
+  });
+
+  it("publishes and returns the amount really swapped when it finishes", async () => {
+    const { poll } = await order(() => null, async () => ({ status: "completed", amountSent: "4.9", amountReceived: "0.001", partialRefund: true }));
+    expect(await poll()).toMatchObject({ status: "completed", amountSent: "4.9", partialRefund: true });
+    expect(publisher.updateQuote.mock.calls.at(-1)![1].summary).toBe("Swapped 4.9 USDC on Ethereum for 0.001 ETH on Base");
   });
 });
 

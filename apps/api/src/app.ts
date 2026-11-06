@@ -62,8 +62,8 @@ export interface AppDeps {
   newId?: (prefix: string) => string;
   /** The least time between status calls to a venue for one swap. */
   trackIntervalMs?: number;
-  /** Reads the chain for a deposit, which is often visible before a venue reports it. */
-  depositSeen?: (deposit: Deposit) => Promise<boolean>;
+  /** Reads what's in a deposit address, which is often visible before a venue reports it. */
+  depositBalance?: (deposit: Deposit) => Promise<string | null>;
   /** The least time between chain reads for one swap. */
   depositWatchMs?: number;
   /** The least time between price checks to the venues, across all callers. */
@@ -313,7 +313,12 @@ export function createApp(deps: AppDeps): Hono {
     const venueDeadline = prepared.deposit.expiresAt ? new Date(prepared.deposit.expiresAt).getTime() : Infinity;
     return {
       ...prepared,
-      deposit: { ...prepared.deposit, expiresAt: new Date(Math.min(limit, venueDeadline)).toISOString() },
+      deposit: {
+        ...prepared.deposit,
+        expiresAt: new Date(Math.min(limit, venueDeadline)).toISOString(),
+        // The order window limits what Crossfare promises. A refund still runs on the provider's clock.
+        ...(prepared.deposit.expiresAt ? { refundBy: prepared.deposit.expiresAt } : {}),
+      },
     };
   }
 
@@ -492,13 +497,13 @@ export function createApp(deps: AppDeps): Hono {
 
     const deposit = (swap.prepared as PreparedSwap).deposit;
     const watchDue = now().getTime() - (lastWatched.get(swap.id) ?? -Infinity) >= depositWatchMs;
-    if (swap.status === "awaiting_deposit" && deposit && deps.depositSeen && watchDue) {
+    if (swap.status === "awaiting_deposit" && deposit && deps.depositBalance && watchDue) {
       lastWatched.set(swap.id, now().getTime());
-      const seen = await deps.depositSeen(deposit).catch((error: unknown) => {
+      const seen = await deps.depositBalance(deposit).catch((error: unknown) => {
         onError(`deposit check failed for ${swap.id}`, error);
-        return false;
+        return null;
       });
-      if (seen) store.updateSwap(swap.id, { status: "confirming" });
+      if (seen) recordBalance(swap.id, deposit, seen);
     }
 
     const due = now().getTime() - (lastTracked.get(swap.id) ?? -Infinity) >= trackIntervalMs;
@@ -514,14 +519,39 @@ export function createApp(deps: AppDeps): Hono {
       status: current.status,
       txHashes: current.txHashes,
       amountReceived: current.amountReceived,
+      amountSent: current.depositDetails?.amountSent ?? null,
+      depositShort: current.depositDetails?.depositShort ?? null,
+      refundReason: current.depositDetails?.refundReason ?? null,
+      partialRefund: current.depositDetails?.partialRefund ?? false,
+      ...(deposit?.minAmount ? { minAmount: deposit.minAmount } : {}),
+      ...(deposit?.refundBy ? { refundBy: deposit.refundBy } : {}),
       arkiv: { entityKey: quote.entityKey ?? null },
     });
   });
 
-  function outcomeSummary(route: Route, outcome: string, received?: string) {
-    const decimals = getAsset(route.to).decimals;
-    const amountOut = received ? toBaseUnits(received, decimals).toString() : route.amountOut;
-    return describeSwap({ from: route.from, to: route.to, amountIn: route.amountIn, amountOut, outcome });
+  function outcomeSummary(route: Route, outcome: string, received?: string, sent?: string) {
+    const amountOut = received ? toBaseUnits(received, getAsset(route.to).decimals).toString() : route.amountOut;
+    const amountIn = sent ? toBaseUnits(sent, getAsset(route.from).decimals).toString() : route.amountIn;
+    return describeSwap({ from: route.from, to: route.to, amountIn, amountOut, outcome });
+  }
+
+  /** Below a provider's minimum a deposit isn't swapped. With no minimum documented, only dust is ignored. */
+  function depositLevel(deposit: Deposit, amount: string): "enough" | "short" | "dust" {
+    const { decimals } = getAsset(deposit.asset);
+    const got = toBaseUnits(amount, decimals);
+    if (deposit.minAmount) return got >= toBaseUnits(deposit.minAmount, decimals) ? "enough" : "short";
+    return got * 2n >= toBaseUnits(deposit.amount, decimals) ? "enough" : "dust";
+  }
+
+  function recordBalance(swapId: string, deposit: Deposit, balance: string) {
+    const details = store.getSwap(swapId)?.depositDetails ?? {};
+    const level = depositLevel(deposit, balance);
+    if (level === "short") {
+      store.updateSwap(swapId, { depositDetails: { ...details, depositShort: balance } });
+    } else if (level === "enough") {
+      const { depositShort: _cleared, ...rest } = details;
+      store.updateSwap(swapId, { status: "confirming", depositDetails: { ...rest, amountSent: balance } });
+    }
   }
 
   /** Advances a swap from the venue. A tracking failure leaves the last known status. */
@@ -541,23 +571,38 @@ export function createApp(deps: AppDeps): Hono {
       });
 
       const deadline = prepared.deposit?.expiresAt;
+      const finished = TERMINAL.includes(tracked.status);
+      const reportedShort =
+        !finished && prepared.deposit && tracked.amountSent && depositLevel(prepared.deposit, tracked.amountSent) === "short"
+          ? tracked.amountSent
+          : undefined;
+      const { depositShort: seenShort, ...earlier } = swap.depositDetails ?? {};
+      const depositShort = finished ? undefined : (reportedShort ?? seenShort);
       const lapsed =
-        tracked.status === "awaiting_deposit" && deadline && now().getTime() > new Date(deadline).getTime();
+        tracked.status === "awaiting_deposit" && !depositShort && deadline && now().getTime() > new Date(deadline).getTime();
       // A venue can lag the chain, and a swap that has started must not read as unstarted.
       const lagging = tracked.status === "awaiting_deposit" && swap.status !== "awaiting_deposit";
-      const status: SwapStatus = lagging ? swap.status : lapsed ? "expired" : tracked.status;
+      const status: SwapStatus = reportedShort ? "awaiting_deposit" : lagging ? swap.status : lapsed ? "expired" : tracked.status;
+      const amountSent = reportedShort ? earlier.amountSent : (tracked.amountSent ?? earlier.amountSent);
 
       store.updateSwap(swap.id, {
         status,
         ...(tracked.txHashes ? { txHashes: tracked.txHashes } : {}),
         ...(tracked.amountReceived ? { amountReceived: tracked.amountReceived } : {}),
+        depositDetails: {
+          ...earlier,
+          ...(amountSent ? { amountSent } : {}),
+          ...(depositShort ? { depositShort } : {}),
+          ...(tracked.refundReason ? { refundReason: tracked.refundReason } : {}),
+          ...(tracked.partialRefund ? { partialRefund: true } : {}),
+        },
       });
 
       if (TERMINAL.includes(status) && quote.entityKey) {
         await publisher
           .updateQuote(quote.entityKey, {
             status,
-            summary: outcomeSummary(quote.route as Route, status, tracked.amountReceived),
+            summary: outcomeSummary(quote.route as Route, status, tracked.amountReceived, amountSent),
             ...(tracked.amountReceived ? { amountReceived: tracked.amountReceived } : {}),
             ...(tracked.txHashes ? { txHashes: tracked.txHashes } : {}),
           })

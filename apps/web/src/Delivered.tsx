@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { formatAmount, formatRate, formatUsd, receivedAboveMinimum, shorten, statusLabel, type PublicRoute } from "./journey.ts";
+import { formatAmount, formatRate, formatUsd, receivedAboveMinimum, sentComparedToQuote, shorten, statusLabel, type PublicRoute } from "./journey.ts";
 import { chainNameOf, symbolOf } from "./asset-book.ts";
 import { Coin, prefersReducedMotion } from "./ui.tsx";
 
@@ -111,13 +111,18 @@ export function Delivered(props: {
   from: string;
   to: string;
   amount: string;
+  amountSent: string | null;
+  partialRefund: boolean;
+  refundAddress: string;
   recipient: string;
   amountReceived: string | null;
   elapsedSeconds: number | null;
   links: ProofLink[];
   onAgain: () => void;
 }) {
-  const { route, from, to, amount, recipient, amountReceived, elapsedSeconds, links } = props;
+  const { route, from, to, amount, amountSent, partialRefund, refundAddress, recipient, amountReceived, elapsedSeconds, links } = props;
+  const sent = amountSent ?? amount;
+  const difference = sentComparedToQuote(amountSent, amount);
   const symbolFrom = symbolOf(from);
   const symbolTo = symbolOf(to);
   const chainTo = chainNameOf(to);
@@ -127,8 +132,9 @@ export function Delivered(props: {
   const settled = counted === Number(final);
   const dollars =
     route?.usd && Number(route.amountOut) > 0 ? formatUsd((route.usd.out / Number(route.amountOut)) * Number(final)) : null;
-  const above = route ? receivedAboveMinimum(amountReceived, route.minAmountOut) : null;
-  const rate = formatRate(amount, final, symbolFrom, symbolTo);
+  // Sending more than quoted says nothing about how well the swap did.
+  const above = route && !difference ? receivedAboveMinimum(amountReceived, route.minAmountOut) : null;
+  const rate = partialRefund ? null : formatRate(sent, final, symbolFrom, symbolTo);
 
   return (
     <section className="delivered glass" aria-label="Swap result">
@@ -150,7 +156,7 @@ export function Delivered(props: {
 
       <div className="delivered-flow">
         <span>
-          <Coin asset={from} size={22} /> {amount} {symbolFrom} on {chainFrom}
+          <Coin asset={from} size={22} /> {sent} {symbolFrom} on {chainFrom}
         </span>
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
           <path d="M5 12h14m0 0-6-6m6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -161,7 +167,24 @@ export function Delivered(props: {
       </div>
 
       <dl className="delivered-facts">
-        {route && (
+        {difference && (
+          <div>
+            <dt>You sent</dt>
+            <dd>
+              {sent} {symbolFrom}
+              <em className="delivered-notice">
+                {difference === "less" ? "Less" : "More"} than the {amount} {symbolFrom} quoted, and {partialRefund ? "the part that couldn't swap went back" : "all of it swapped"}
+              </em>
+            </dd>
+          </div>
+        )}
+        {partialRefund && (
+          <div>
+            <dt>Refund</dt>
+            <dd>Part of your deposit went back to {shorten(refundAddress)}</dd>
+          </div>
+        )}
+        {route && difference !== "less" && (
           <div>
             <dt>Guaranteed at least</dt>
             <dd>

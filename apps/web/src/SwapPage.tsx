@@ -27,9 +27,11 @@ import {
   orderStages,
   reduceJourney,
   routeAction,
+  sentComparedToQuote,
   shorten,
   statusLabel,
   swapCost,
+  topUpNeeded,
   unitPrice,
   walletMatches,
   type Deposit,
@@ -208,21 +210,28 @@ function OrderPanel(props: {
   refundAddress: string;
   recipient: string;
   now: Date;
+  depositShort: string | null;
   connected: string | undefined;
   sending: boolean;
   canSendWithWallet: boolean;
   onSendWithWallet: () => void;
   onStartOver: () => void;
 }) {
-  const { deposit, route, toAsset, refundAddress, recipient, now, connected, sending, canSendWithWallet } = props;
+  const { deposit, route, toAsset, refundAddress, recipient, now, connected, sending, canSendWithWallet, depositShort } = props;
+  const sold = symbolOf(deposit.asset);
+  const flexible = deposit.minAmount && deposit.minAmount !== deposit.amount;
+  const refundDate = deposit.refundBy
+    ? new Date(deposit.refundBy).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })
+    : null;
+  const more = depositShort && deposit.minAmount ? topUpNeeded(depositShort, deposit.minAmount) : null;
   const matches = walletMatches(connected, refundAddress);
   const usd = formatUsd(route?.usd?.out);
   return (
     <section className="order glass" aria-label="Deposit instructions">
       <Stepper stages={props.stages} />
       <div className="order-head">
-        <h2>Send your deposit</h2>
-        {deposit.expiresAt && (
+        <h2>{depositShort ? "Your deposit is too small" : "Send your deposit"}</h2>
+        {deposit.expiresAt && !depositShort && (
           <p className="order-clock">
             <span>Time left</span> {formatDeadline(deposit.expiresAt, now)}
           </p>
@@ -251,10 +260,25 @@ function OrderPanel(props: {
           )}
         </div>
       </div>
-      <div className="order-watch" role="status">
-        <span className="radar" aria-hidden="true" />
-        <p>Watching {chainNameOf(deposit.asset)} for your deposit. This page moves on by itself once it lands.</p>
-      </div>
+      {depositShort ? (
+        <div className="order-short" role="alert">
+          <p>
+            <strong>
+              {depositShort} {sold} arrived, below the {deposit.minAmount} {sold} minimum, so it hasn't been swapped.
+            </strong>
+          </p>
+          <p>
+            {more && `Send at least ${more} ${sold} more to the same address and the swap goes ahead. `}
+            Otherwise the provider returns it to {shorten(refundAddress)} after its deadline
+            {refundDate ? `, ${refundDate}` : ""}. Keep this page open to follow it.
+          </p>
+        </div>
+      ) : (
+        <div className="order-watch" role="status">
+          <span className="radar" aria-hidden="true" />
+          <p>Watching {chainNameOf(deposit.asset)} for your deposit. This page moves on by itself once it lands.</p>
+        </div>
+      )}
       {route && (
         <dl className="order-facts">
           <div>
@@ -277,9 +301,12 @@ function OrderPanel(props: {
         <p className="order-recipient">{recipient}</p>
       </div>
       <p className="order-note">
-        Send from any wallet or exchange, on {chainNameOf(deposit.asset)} only. If an exchange takes a withdrawal fee, add
-        it so the full amount arrives, because you receive less if less arrives. If the swap can't go ahead, your funds
-        return to {shorten(refundAddress)}.
+        Send from any wallet or exchange, on {chainNameOf(deposit.asset)} only.{" "}
+        {flexible
+          ? `Anything from ${deposit.minAmount} to ${deposit.amount} ${sold} swaps under this quote, and more than that swaps too, all of it. Less than ${deposit.minAmount} ${sold} isn't swapped, and returns to ${shorten(refundAddress)} after the provider's deadline, which can take days.`
+          : deposit.minAmount
+            ? `Send the full amount. Less isn't swapped and any extra isn't either: both return to ${shorten(refundAddress)}, which can take days.`
+            : `If an exchange takes a withdrawal fee, add it so the full amount arrives, because you receive less if less arrives. If the swap can't go ahead, your funds return to ${shorten(refundAddress)}.`}
       </p>
       <div className="order-actions">
         {canSendWithWallet && matches && (
@@ -293,9 +320,11 @@ function OrderPanel(props: {
             Your connected wallet isn't the refund address, so send this deposit from your wallet app or exchange.
           </p>
         )}
-        <button className="ghost order-restart" onClick={props.onStartOver}>
-          Start over
-        </button>
+        {!depositShort && (
+          <button className="ghost order-restart" onClick={props.onStartOver}>
+            Start over
+          </button>
+        )}
       </div>
     </section>
   );
@@ -419,6 +448,10 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
           status: answer.body.status,
           amountReceived: answer.body.amountReceived,
           txHashes: answer.body.txHashes,
+          amountSent: answer.body.amountSent,
+          depositShort: answer.body.depositShort,
+          refundReason: answer.body.refundReason,
+          partialRefund: answer.body.partialRefund,
         });
       }
       timer = setTimeout(poll, STATUS_POLL_MS);
@@ -749,6 +782,7 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
         <OrderPanel
           stages={stages}
           deposit={state.deposit}
+          depositShort={state.depositShort}
           route={chosen}
           toAsset={to}
           refundAddress={refundAddress}
@@ -777,10 +811,11 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
           providerName={providerShort(chosen)}
           from={from}
           to={to}
-          amount={amount}
+          amount={state.amountSent ?? amount}
           recipient={recipient}
           elapsedSeconds={elapsedSeconds}
           sentLink={sentLink}
+          sentDiffers={sentComparedToQuote(state.amountSent, amount) !== null}
         />
       )}
 
@@ -790,6 +825,9 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
           from={from}
           to={to}
           amount={amount}
+          amountSent={state.amountSent}
+          partialRefund={state.partialRefund}
+          refundAddress={refundAddress}
           recipient={recipient}
           amountReceived={state.amountReceived}
           elapsedSeconds={elapsedFinal}
@@ -806,7 +844,7 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
             {state.swapStatus === "expired"
               ? "Don't send to that deposit address. Start a new swap to get a fresh quote. If you already sent funds, keep the transaction hash, because the provider may still process them."
               : state.swapStatus === "refunded"
-                ? `The provider returned your funds to ${shorten(refundAddress)}.`
+                ? `The provider returned ${state.amountSent ? `${state.amountSent} ${symbolOf(from)}` : "your funds"} to ${shorten(refundAddress)}.${state.refundReason ? ` Its reason: ${state.refundReason.replaceAll("_", " ").toLowerCase()}.` : ""}`
                 : "The swap didn't complete. Check the links below for where your funds are."}
           </p>
           {proofLinks.length > 0 && (

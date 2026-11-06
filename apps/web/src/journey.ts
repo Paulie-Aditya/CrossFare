@@ -27,6 +27,8 @@ export interface Deposit {
   amount: string;
   expiresAt?: string;
   channelId?: string;
+  minAmount?: string;
+  refundBy?: string;
 }
 
 export type Step = "idle" | "quoting" | "quoted" | "preparing" | "signing" | "tracking" | "finished";
@@ -45,6 +47,10 @@ export interface JourneyState {
   txHashes: string[];
   swapStatus: string | null;
   amountReceived: string | null;
+  amountSent: string | null;
+  depositShort: string | null;
+  refundReason: string | null;
+  partialRefund: boolean;
   error: string | null;
   notice: string | null;
 }
@@ -63,6 +69,10 @@ export const initialJourney: JourneyState = {
   txHashes: [],
   swapStatus: null,
   amountReceived: null,
+  amountSent: null,
+  depositShort: null,
+  refundReason: null,
+  partialRefund: false,
   error: null,
   notice: null,
 };
@@ -82,7 +92,16 @@ export type JourneyEvent =
   | { type: "wallet_send_requested" }
   | { type: "tx_sent"; hash: string }
   | { type: "signed" }
-  | { type: "status"; status: string; amountReceived?: string | null; txHashes?: string[] }
+  | {
+      type: "status";
+      status: string;
+      amountReceived?: string | null;
+      txHashes?: string[];
+      amountSent?: string | null;
+      depositShort?: string | null;
+      refundReason?: string | null;
+      partialRefund?: boolean;
+    }
   | { type: "failed"; message: string }
   | { type: "arkiv_keys"; keys: Record<string, string> }
   | { type: "form_changed" }
@@ -139,13 +158,18 @@ export function reduceJourney(state: JourneyState, event: JourneyEvent): Journey
         ...state,
         step: FINISHED.includes(event.status) ? "finished" : "tracking",
         // A venue can lag the chain, but progress shouldn't move backwards.
-        swapStatus:
-          event.status === "awaiting_deposit" && state.swapStatus && state.swapStatus !== "awaiting_deposit"
+        swapStatus: event.depositShort
+          ? "awaiting_deposit"
+          : event.status === "awaiting_deposit" && state.swapStatus && state.swapStatus !== "awaiting_deposit"
             ? state.swapStatus
             : event.status === "awaiting_deposit" && state.txHashes.length
               ? "confirming"
               : event.status,
         amountReceived: event.amountReceived ?? state.amountReceived,
+        amountSent: event.amountSent ?? state.amountSent,
+        depositShort: event.depositShort === undefined ? state.depositShort : event.depositShort,
+        refundReason: event.refundReason ?? state.refundReason,
+        partialRefund: event.partialRefund ?? state.partialRefund,
         txHashes: event.txHashes?.length ? event.txHashes : state.txHashes,
       };
     case "failed":
@@ -363,6 +387,26 @@ export function unitPrice(amountOut: string, usdOut: number | undefined): string
 export function swapCost(usd: { in: number; out: number } | undefined): string | null {
   if (!usd || !(usd.in > 0) || usd.out >= usd.in) return null;
   return `${formatUsd(usd.in - usd.out)} (${(((usd.in - usd.out) / usd.in) * 100).toFixed(2)}%)`;
+}
+
+function decimalPair(left: string, right: string): [bigint, bigint, number] {
+  const width = Math.max(left.split(".")[1]?.length ?? 0, right.split(".")[1]?.length ?? 0);
+  return [decimalKey(left, width), decimalKey(right, width), width];
+}
+
+export function sentComparedToQuote(sent: string | null, quoted: string): "less" | "more" | null {
+  if (!sent) return null;
+  const [got, wanted] = decimalPair(sent, quoted);
+  return got === wanted ? null : got < wanted ? "less" : "more";
+}
+
+/** Exact, because a person will send precisely what this says. */
+export function topUpNeeded(seen: string, minimum: string): string | null {
+  const [got, needed, width] = decimalPair(seen, minimum);
+  if (got >= needed) return null;
+  const digits = (needed - got).toString().padStart(width + 1, "0");
+  const fraction = digits.slice(digits.length - width).replace(/0+$/, "");
+  return fraction ? `${digits.slice(0, digits.length - width)}.${fraction}` : digits.slice(0, digits.length - width);
 }
 
 export function formatEta(seconds: number): string | null {

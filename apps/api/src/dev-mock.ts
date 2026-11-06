@@ -51,17 +51,26 @@ function fakeVenue(name: string, routes: () => Partial<Route>[], eta: number, sh
           amount: request.from.amount,
           expiresAt: validUntil(1800),
           channelId: "mock-channel",
+          minAmount: String(Number(request.from.amount) * 0.97),
         },
       };
     },
     async track(input) {
       const age = Date.now() - preparedAt;
+      // Typing 7 sends too little and 8 sends too much, so the UI's handling of each can be seen.
+      const typed = input.request.from.amount;
+      if (typed === "7" && age >= MOCK_STAGE_MS) {
+        if (age >= MOCK_STAGE_MS * 4) return { status: "refunded", amountSent: "6", refundReason: "INCOMPLETE_DEPOSIT" };
+        return { status: "confirming", amountSent: "6" };
+      }
+      const sent = typed === "8" ? { amountSent: "9" } : {};
       if (age < MOCK_STAGE_MS && input.prepared.deposit) return { status: "awaiting_deposit" };
-      if (age < MOCK_STAGE_MS * 2) return { status: "confirming", txHashes: [HASH("a")] };
+      if (age < MOCK_STAGE_MS * 2) return { status: "confirming", txHashes: [HASH("a")], ...sent };
       if (age < MOCK_STAGE_MS * 3) return { status: "exchanging", txHashes: [HASH("a"), "5i7QpCFZ2wpgSTV8okZbEgpitmxtZ91k8MMX5z6Mbcrr"] };
       const received = (Number(input.route.amountOut) * 1.002) / 1e18;
       return {
         status: "completed",
+        ...sent,
         amountReceived: received.toFixed(18),
         txHashes: [HASH("a"), "5i7QpCFZ2wpgSTV8okZbEgpitmxtZ91k8MMX5z6Mbcrr", HASH("b")],
       };

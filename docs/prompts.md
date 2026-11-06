@@ -72,3 +72,7 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 
 > can the frontend of this be deployed on vercel? I will host the backend on my ec2 instance
 
+## 16. Deposits that differ from the quote
+
+> what happens if the amount sent is less than what I had quoted, let's say I had quoted 5 usdc, but I sent 4 actually, will the swap go through? what I think the ideal flow should be: if amount sent is not exact, if it is less than amount , but above minimum, then make the swap go through and at the confirmation page everything would show. if it is above the amount, only swap the amount quoted, and send back the rest to the refund address if it differs by over 5$ (covers gas) else swap the entire amount and show in confirmation page
+

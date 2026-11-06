@@ -3,6 +3,8 @@ import {
   arkivEntityUrl,
   bestRoute,
   buildQuoteRequest,
+  sentComparedToQuote,
+  topUpNeeded,
   canSignOn,
   defaultSlippage,
   errorMessage,
@@ -539,6 +541,39 @@ describe("sending with a connected wallet", () => {
 
   it("explains a sample address plainly", () => {
     expect(errorMessage({ error: "sample_address" }, 422)).toMatch(/real wallet address/);
+  });
+});
+
+describe("a deposit that differs from the quote", () => {
+  const tracking = { ...initialJourney, step: "tracking" as const, swapId: "s1", swapStatus: "exchanging" };
+
+  it("goes back to the order when the provider says the deposit is short", () => {
+    const next = reduceJourney(tracking, { type: "status", status: "awaiting_deposit", depositShort: "4" });
+    expect(next).toMatchObject({ swapStatus: "awaiting_deposit", depositShort: "4" });
+  });
+
+  it("clears the shortfall once a top-up lands", () => {
+    const short = { ...tracking, swapStatus: "awaiting_deposit", depositShort: "4" };
+    const next = reduceJourney(short, { type: "status", status: "confirming", depositShort: null, amountSent: "4.9" });
+    expect(next).toMatchObject({ swapStatus: "confirming", depositShort: null, amountSent: "4.9" });
+  });
+
+  it("keeps what was sent and any refund for the result screen", () => {
+    const next = reduceJourney(tracking, { type: "status", status: "completed", amountSent: "8", partialRefund: true, refundReason: "x" });
+    expect(next).toMatchObject({ amountSent: "8", partialRefund: true, refundReason: "x" });
+  });
+
+  it("says how a sent amount compares with the quote", () => {
+    expect(sentComparedToQuote("4.9", "5")).toBe("less");
+    expect(sentComparedToQuote("8", "5")).toBe("more");
+    expect(sentComparedToQuote("5.0", "5")).toBeNull();
+    expect(sentComparedToQuote(null, "5")).toBeNull();
+  });
+
+  it("works out what's left to reach the minimum", () => {
+    expect(topUpNeeded("4", "4.85")).toBe("0.85");
+    expect(topUpNeeded("0.1", "0.3")).toBe("0.2");
+    expect(topUpNeeded("5", "4.85")).toBeNull();
   });
 });
 

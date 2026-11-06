@@ -29,9 +29,19 @@ export interface StoredSwap {
   venueSwapId?: string | null;
   txHashes?: string[];
   amountReceived?: string | null;
+  depositDetails?: DepositDetails;
 }
 
-export type SwapUpdate = Partial<Pick<StoredSwap, "status" | "txHashes" | "amountReceived">>;
+/** What really happened to a deposit, which can differ from the quote. */
+export interface DepositDetails {
+  amountSent?: string;
+  /** What has arrived so far, while it's below the provider's minimum. */
+  depositShort?: string;
+  refundReason?: string;
+  partialRefund?: boolean;
+}
+
+export type SwapUpdate = Partial<Pick<StoredSwap, "status" | "txHashes" | "amountReceived" | "depositDetails">>;
 
 export interface Store {
   /** Returns false when this payment was already claimed: the replay check. */
@@ -78,7 +88,8 @@ const SCHEMA = `
     prepared TEXT NOT NULL,
     venue_swap_id TEXT,
     tx_hashes TEXT NOT NULL DEFAULT '[]',
-    amount_received TEXT
+    amount_received TEXT,
+    deposit_details TEXT NOT NULL DEFAULT '{}'
   );
 `;
 
@@ -95,12 +106,18 @@ function toSwap(row: Row | undefined): StoredSwap | null {
     venueSwapId: row.venue_swap_id ?? null,
     txHashes: JSON.parse(row.tx_hashes!) as string[],
     amountReceived: row.amount_received ?? null,
+    depositDetails: JSON.parse(row.deposit_details ?? "{}") as DepositDetails,
   };
 }
 
 export function createStore(path: string): Store {
   const db = new DatabaseSync(path);
   db.exec(SCHEMA);
+  // A database from before this column keeps its rows.
+  const columns = db.prepare("PRAGMA table_info(swaps)").all() as { name: string }[];
+  if (!columns.some((column) => column.name === "deposit_details")) {
+    db.exec("ALTER TABLE swaps ADD COLUMN deposit_details TEXT NOT NULL DEFAULT '{}'");
+  }
 
   return {
     claimPayment(fingerprint, endpoint) {
@@ -202,10 +219,11 @@ export function createStore(path: string): Store {
     updateSwap(id, update) {
       const current = this.getSwap(id);
       if (!current) throw new Error(`Unknown swap: ${id}`);
-      db.prepare("UPDATE swaps SET status = ?, tx_hashes = ?, amount_received = ? WHERE id = ?").run(
+      db.prepare("UPDATE swaps SET status = ?, tx_hashes = ?, amount_received = ?, deposit_details = ? WHERE id = ?").run(
         update.status ?? current.status,
         JSON.stringify(update.txHashes ?? current.txHashes ?? []),
         update.amountReceived ?? current.amountReceived ?? null,
+        JSON.stringify(update.depositDetails ?? current.depositDetails ?? {}),
         id,
       );
     },

@@ -74,7 +74,7 @@ sequenceDiagram
 | `POST /v1/swap` | Free for now | Prepare one quote for execution. Needs the `swapToken` from its quote response |
 | `POST /v1/swaps/:id/tx` | Free | Report the broadcast transaction hash |
 | `GET /v1/price?from=&to=&amount=` | Free | An indicative price for the UI while someone types. It isn't published, can't be executed and shares a rate limit between callers. |
-| `GET /v1/swaps/:id` | Free | Swap status. It reads the deposit address on chain as well as asking the provider, so a deposit shows within seconds. |
+| `GET /v1/swaps/:id` | Free | Swap status. It reads the deposit address on chain as well as asking the provider, so a deposit shows within seconds. It also reports what was really deposited, and any shortfall below the provider's minimum. |
 | `GET /v1/quotes` | Free | Recent quotes, or one payer's with `?payer=`, read from Arkiv |
 | `POST /demo/quote`, `POST /demo/swap` | Free, capped | The same calls, with any fee paid by a testnet account so visitors to the UI need no Hedera wallet |
 

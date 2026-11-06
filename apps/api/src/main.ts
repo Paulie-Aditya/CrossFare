@@ -87,7 +87,7 @@ const app = createApp({
   payTo: config.payToAccount,
   ...(config.swapPriceUsd ? { swapPriceUsd: config.swapPriceUsd } : {}),
   arkivWriter: arkiv.writer,
-  depositSeen: createDepositWatcher({ [base.id]: balancesOn(readers[base.id]), [mainnet.id]: balancesOn(readers[mainnet.id]) }),
+  depositBalance: createDepositWatcher({ [base.id]: balancesOn(readers[base.id]), [mainnet.id]: balancesOn(readers[mainnet.id]) }),
   screen: createSwapKitScreen({ apiKey: config.swapkitApiKey }),
 });
 

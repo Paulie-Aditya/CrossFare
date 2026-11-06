@@ -1,3 +1,7 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createStore, type Store } from "./store.ts";
 
@@ -89,3 +93,19 @@ describe("swaps", () => {
     expect(store.getSwap("nope")).toBeNull();
   });
 });
+
+describe("a database from before deposit details", () => {
+  it("gains the new column and keeps its swaps", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "crossfare-")), "old.db");
+    const old = new DatabaseSync(path);
+    old.exec(`CREATE TABLE swaps (id TEXT PRIMARY KEY, quote_id TEXT NOT NULL, venue TEXT NOT NULL, status TEXT NOT NULL, prepared TEXT NOT NULL, venue_swap_id TEXT, tx_hashes TEXT NOT NULL DEFAULT '[]', amount_received TEXT)`);
+    old.prepare("INSERT INTO swaps (id, quote_id, venue, status, prepared) VALUES ('s1', 'q1', 'swapkit', 'completed', '{}')").run();
+    old.close();
+    const store = createStore(path);
+    expect(store.getSwap("s1")).toMatchObject({ id: "s1", status: "completed", depositDetails: {} });
+    store.updateSwap("s1", { depositDetails: { amountSent: "4.9" } });
+    expect(store.getSwap("s1")?.depositDetails).toEqual({ amountSent: "4.9" });
+    expect(createStore(path).getSwap("s1")?.depositDetails).toEqual({ amountSent: "4.9" });
+  });
+});
+

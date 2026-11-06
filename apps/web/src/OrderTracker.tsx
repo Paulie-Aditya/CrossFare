@@ -39,8 +39,10 @@ export function InFlight(props: {
   recipient: string;
   elapsedSeconds: number;
   sentLink: { label: string; url: string } | null;
+  /** The quote's estimate no longer applies once a different amount arrives. */
+  sentDiffers?: boolean;
 }) {
-  const { stages, status, route, from, to, amount, recipient, elapsedSeconds, sentLink } = props;
+  const { stages, status, route, from, to, amount, recipient, elapsedSeconds, sentLink, sentDiffers } = props;
   const eta = route?.etaSeconds ?? 60;
   const etaText = formatEta(eta);
   const detail =
@@ -69,7 +71,7 @@ export function InFlight(props: {
           <Coin asset={to} size={44} />
           <p>
             <strong>
-              {route ? `~${formatAmount(route.amountOut)}` : ""} {symbolOf(to)}
+              {route && !sentDiffers ? `~${formatAmount(route.amountOut)}` : ""} {symbolOf(to)}
             </strong>
             <span>on {chainOf(to)}</span>
           </p>
