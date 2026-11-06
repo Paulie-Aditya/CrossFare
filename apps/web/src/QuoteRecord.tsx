@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { get } from "./api.ts";
 import { arkivEntityUrl, explorerLinks, formatAmount, formatUsd, shorten, statusLabel } from "./journey.ts";
-import { CHAIN_NAMES, Coin } from "./ui.tsx";
+import { chainNameOf, symbolOf } from "./asset-book.ts";
+import { Coin } from "./ui.tsx";
 
 interface RecordRow {
   entityKey: string;
@@ -17,8 +18,7 @@ interface RecordRow {
   payload?: { amountOut?: string; minAmountOut?: string; provider?: string; usd?: { in: number; out: number } };
 }
 
-const assetName = (id: string) => `${id.split(":")[1]?.toUpperCase() ?? id} on ${CHAIN_NAMES[id.split(":")[0] ?? ""] ?? ""}`;
-const symbolOf = (id: string) => id.split(":")[1]?.toUpperCase() ?? id;
+const assetName = (id: string) => `${symbolOf(id)} on ${chainNameOf(id)}`;
 const isSwap = (row: RecordRow) => !["quoted", "expired"].includes(row.status.toLowerCase());
 const whenText = (seconds?: number) =>
   seconds

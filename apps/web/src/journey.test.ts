@@ -3,9 +3,11 @@ import {
   arkivEntityUrl,
   bestRoute,
   buildQuoteRequest,
+  canSignOn,
   defaultSlippage,
   errorMessage,
   explorerLinks,
+  explorerAddressUrl,
   explorerTxUrl,
   formatAmount,
   formatCountdown,
@@ -492,3 +494,51 @@ describe("walletOptions", () => {
     expect(walletOptions([])).toEqual([]);
   });
 });
+
+describe("routes on chains this page can't sign on", () => {
+  const needsSignature = { depositable: false } as PublicRoute;
+
+  it("offers a deposit from any chain", () => {
+    expect(routeAction({ depositable: true } as PublicRoute, false, "sol")).toBe("deposit");
+  });
+
+  it("asks for a wallet on Ethereum and Base", () => {
+    expect(routeAction(needsSignature, false, "eth")).toBe("connect");
+    expect(routeAction(needsSignature, true, "base")).toBe("wallet");
+  });
+
+  it("says so anywhere else, even with a wallet connected", () => {
+    expect(routeAction(needsSignature, true, "sol")).toBe("unsupported");
+    expect(routeAction(needsSignature, true, "arb")).toBe("unsupported");
+  });
+});
+
+describe("explorers across chains", () => {
+  it("links each chain to its own explorer", () => {
+    expect(explorerLinks(["0xa"], "arb:eth", "sol:sol")[0]?.url).toBe("https://arbiscan.io/tx/0xa");
+    expect(explorerLinks(["0xa"], "bsc:bnb", "sol:sol")[0]?.label).toBe("BscScan");
+  });
+
+  it("gives no link for a chain it has no explorer for, rather than a wrong one", () => {
+    expect(explorerLinks(["0xa"], "hood:eth", "base:eth")).toEqual([]);
+  });
+
+  it("gives no address link for an unknown chain", () => {
+    expect(explorerAddressUrl("hood", "0xa")).toBeNull();
+    expect(explorerAddressUrl("arb", "0xa")).toBe("https://arbiscan.io/address/0xa");
+  });
+});
+
+describe("sending with a connected wallet", () => {
+  it("is only offered on chains this page can sign on", () => {
+    expect(canSignOn("eth:usdc")).toBe(true);
+    expect(canSignOn("base:eth")).toBe(true);
+    expect(canSignOn("arb:eth")).toBe(false);
+    expect(canSignOn("sol:sol")).toBe(false);
+  });
+
+  it("explains a sample address plainly", () => {
+    expect(errorMessage({ error: "sample_address" }, 422)).toMatch(/real wallet address/);
+  });
+});
+

@@ -1,10 +1,13 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
+import { compress } from "hono/compress";
 import {
   fromBaseUnits,
   getAsset,
   isValidAddress,
   listAssets,
+  listChains,
+  displaySymbol,
   rankRoutes,
   toBaseUnits,
   VenueError,
@@ -244,17 +247,23 @@ export function createApp(deps: AppDeps): Hono {
     }),
   );
 
-  app.get("/v1/assets", (c) =>
-    c.json({
+  // Thousands of tokens, so it's compressed and cacheable.
+  app.get("/v1/assets", compress(), (c) => {
+    c.header("cache-control", "public, max-age=3600");
+    return c.json({
+      chains: listChains(),
       assets: listAssets().map((asset) => ({
         id: asset.id,
         chain: asset.chain,
         symbol: asset.symbol,
+        name: asset.name ?? displaySymbol(asset.symbol),
         decimals: asset.decimals,
+        evm: asset.evmChainId !== undefined,
+        ...(asset.logo ? { logo: asset.logo } : {}),
         venues: [...(asset.uniswap ? [UNISWAP_VENUE] : []), SWAPKIT_VENUE],
       })),
-    }),
-  );
+    });
+  });
 
   app.post("/v1/quote", async (c) => {
     const parsed = parseQuoteRequest(await c.req.json().catch(() => null));

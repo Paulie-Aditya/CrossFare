@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { get } from "./api.ts";
+import { setBook, type AssetOption, type ChainOption } from "./asset-book.ts";
 import { QuoteRecord } from "./QuoteRecord.tsx";
 import { SwapPage } from "./SwapPage.tsx";
 import { useWalletMenu, WalletButton } from "./WalletMenu.tsx";
@@ -6,6 +8,17 @@ import { useWalletMenu, WalletButton } from "./WalletMenu.tsx";
 export function App() {
   const [page, setPage] = useState<"swap" | "record">("swap");
   const walletMenu = useWalletMenu();
+  const [catalog, setCatalog] = useState<{ assets: AssetOption[]; chains: ChainOption[] }>({ assets: [], chains: [] });
+
+  useEffect(() => {
+    get("/v1/assets")
+      .then((answer) => {
+        if (!answer.ok) return;
+        setBook(answer.body.assets, answer.body.chains);
+        setCatalog({ assets: answer.body.assets, chains: answer.body.chains });
+      })
+      .catch(() => undefined);
+  }, []);
   return (
     <>
       <header className="masthead glass">
@@ -29,7 +42,7 @@ export function App() {
       <main>
         {/* Stays mounted so a swap in progress survives a look at the record. */}
         <div hidden={page !== "swap"}>
-          <SwapPage onConnectWallet={walletMenu.onOpen} />
+          <SwapPage onConnectWallet={walletMenu.onOpen} assets={catalog.assets} chains={catalog.chains} />
         </div>
         {page === "record" && <QuoteRecord />}
       </main>

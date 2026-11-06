@@ -1,8 +1,6 @@
 import { formatAmount, formatEta, shorten, type OrderStage, type PublicRoute } from "./journey.ts";
-import { CHAIN_NAMES, Coin } from "./ui.tsx";
-
-const chainOf = (id: string) => CHAIN_NAMES[id.split(":")[0] ?? ""] ?? "";
-const symbolOf = (id: string) => id.split(":")[1]?.toUpperCase() ?? id;
+import { chainNameOf as chainOf, symbolOf } from "./asset-book.ts";
+import { Coin } from "./ui.tsx";
 
 export function Stepper({ stages }: { stages: OrderStage[] }) {
   return (

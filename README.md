@@ -69,7 +69,7 @@ sequenceDiagram
 | Endpoint | Price | Purpose |
 | --- | --- | --- |
 | `GET /.well-known/x402` | Free | Endpoints, prices, payment details, Arkiv writer |
-| `GET /v1/assets` | Free | Supported assets per venue |
+| `GET /v1/assets` | Free | Every token SwapKit lists, with logos and chains, loaded from its public lists at startup and refreshed daily |
 | `POST /v1/quote` | 0.01 USDC | Ranked routes from every venue that supports the pair |
 | `POST /v1/swap` | Free for now | Prepare one quote for execution. Needs the `swapToken` from its quote response |
 | `POST /v1/swaps/:id/tx` | Free | Report the broadcast transaction hash |

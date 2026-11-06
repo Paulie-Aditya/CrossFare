@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { formatAmount, formatRate, formatUsd, receivedAboveMinimum, shorten, statusLabel, type PublicRoute } from "./journey.ts";
-import { CHAIN_NAMES, Coin, prefersReducedMotion } from "./ui.tsx";
+import { chainNameOf, symbolOf } from "./asset-book.ts";
+import { Coin, prefersReducedMotion } from "./ui.tsx";
 
 const PALETTE = ["#7cf2d0", "#8ab4ff", "#a78bff", "#ffffff", "#ff8ec7", "#ffe08a"];
 const CONFETTI_MS = 3_400;
@@ -117,10 +118,10 @@ export function Delivered(props: {
   onAgain: () => void;
 }) {
   const { route, from, to, amount, recipient, amountReceived, elapsedSeconds, links } = props;
-  const symbolFrom = from.split(":")[1]?.toUpperCase() ?? from;
-  const symbolTo = to.split(":")[1]?.toUpperCase() ?? to;
-  const chainTo = CHAIN_NAMES[to.split(":")[0] ?? ""] ?? "";
-  const chainFrom = CHAIN_NAMES[from.split(":")[0] ?? ""] ?? "";
+  const symbolFrom = symbolOf(from);
+  const symbolTo = symbolOf(to);
+  const chainTo = chainNameOf(to);
+  const chainFrom = chainNameOf(from);
   const final = amountReceived ?? route?.amountOut ?? "0";
   const counted = useCountUp(Number(final));
   const settled = counted === Number(final);

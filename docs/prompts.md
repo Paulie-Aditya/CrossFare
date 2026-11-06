@@ -64,3 +64,11 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 
 > Also for evm swaps, uniswap direct quote is not integrated as far as I can see, because I did a usdc on eth to eth on base swap and best quote was from near. also in the quote itself it should show the prices as well. and while inputting the amount I want to swap, use debounce and show the price, as I said, learn from other dexes visual feedback practices
 
+## 14. Real logos, a compact page and every SwapKit token
+
+> use the proper coin logos, and it is right now stretching a lot, fix it, and in the token picker allow all the stuff allowed on swapkit, because ideally I want to show cross chain swaps
+
+## 15. Hosting the frontend
+
+> can the frontend of this be deployed on vercel? I will host the backend on my ec2 instance
+

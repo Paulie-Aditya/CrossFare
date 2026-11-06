@@ -135,8 +135,8 @@ describe("GET /v1/assets", () => {
     const { assets } = await (response.json() as Promise<any>);
     expect(assets).toEqual(
       expect.arrayContaining([
-        { id: "base:usdc", chain: "base", symbol: "usdc", decimals: 6, venues: ["uniswap", "swapkit"] },
-        { id: "btc:btc", chain: "btc", symbol: "btc", decimals: 8, venues: ["swapkit"] },
+        expect.objectContaining({ id: "base:usdc", chain: "base", symbol: "usdc", decimals: 6, venues: ["uniswap", "swapkit"] }),
+        expect.objectContaining({ id: "btc:btc", chain: "btc", symbol: "btc", decimals: 8, venues: ["swapkit"] }),
       ]),
     );
   });
@@ -906,6 +906,35 @@ describe("dollar values on quotes", () => {
     const uniswap = routes.find((entry: { venue: string }) => entry.venue === "uniswap");
     expect(uniswap.usd.in).toBe(2);
     expect(uniswap.usd.out).toBeCloseTo(3.8);
+  });
+});
+
+describe("GET /v1/assets", () => {
+  it("gives the picker what it needs, chains included", async () => {
+    const body = (await (await app([]).request("/v1/assets")).json()) as any;
+    expect(body.assets.find((asset: { id: string }) => asset.id === "eth:usdc")).toMatchObject({
+      symbol: "usdc",
+      logo: expect.stringContaining("tokens.swapkit.dev"),
+      evm: true,
+    });
+    expect(body.assets.find((asset: { id: string }) => asset.id === "btc:btc").evm).toBe(false);
+    expect(body.chains.find((chain: { id: string }) => chain.id === "eth")).toMatchObject({ name: "Ethereum" });
+  });
+
+  it("names a route that needs a wallet Crossfare can't connect, at no charge", async () => {
+    const venue = fakeVenue("swapkit", [route("swapkit", "100")]);
+    venue.prepare.mockRejectedValue(new VenueError("swapkit", 400, "needs a signature", "wallet_required"));
+    const target = app([venue]);
+    const quoted = (await (await postQuote(target)).json()) as any;
+    const settledBefore = settle.mock.calls.length;
+    const response = await target.request("/v1/swap", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...PAID },
+      body: JSON.stringify({ quoteId: quoted.routes[0].quoteId, swapToken: quoted.swapToken }),
+    });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: "wallet_required" });
+    expect(settle.mock.calls.length).toBe(settledBefore);
   });
 });
 

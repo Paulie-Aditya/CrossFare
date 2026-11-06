@@ -247,46 +247,60 @@ export function formatCountdown(validUntil: string, now: Date): string {
 export const hashscanUrl = (transactionId: string) => `https://hashscan.io/testnet/transaction/${transactionId}`;
 export const arkivEntityUrl = (entityKey: string) => `https://rabdi.explorer.arkiv.network/entity/${entityKey}`;
 
-const EXPLORERS: Record<string, { label: string; base: string }> = {
-  eth: { label: "Etherscan", base: "https://etherscan.io/tx/" },
-  base: { label: "Basescan", base: "https://basescan.org/tx/" },
-  btc: { label: "mempool.space", base: "https://mempool.space/tx/" },
-  sol: { label: "Solscan", base: "https://solscan.io/tx/" },
-  xrp: { label: "XRPScan", base: "https://xrpscan.com/tx/" },
+const EXPLORERS: Record<string, { label: string; base: string; address?: string; evm?: true }> = {
+  eth: { label: "Etherscan", base: "https://etherscan.io/", evm: true },
+  base: { label: "Basescan", base: "https://basescan.org/", evm: true },
+  arb: { label: "Arbiscan", base: "https://arbiscan.io/", evm: true },
+  op: { label: "Optimistic Etherscan", base: "https://optimistic.etherscan.io/", evm: true },
+  pol: { label: "PolygonScan", base: "https://polygonscan.com/", evm: true },
+  bsc: { label: "BscScan", base: "https://bscscan.com/", evm: true },
+  avax: { label: "Snowtrace", base: "https://snowtrace.io/", evm: true },
+  gno: { label: "GnosisScan", base: "https://gnosisscan.io/", evm: true },
+  btc: { label: "mempool.space", base: "https://mempool.space/" },
+  sol: { label: "Solscan", base: "https://solscan.io/", address: "account/" },
+  xrp: { label: "XRPScan", base: "https://xrpscan.com/", address: "account/" },
 };
 
 export function explorerTxUrl(chain: string, hash: string): string {
-  return `${EXPLORERS[chain]?.base ?? EXPLORERS.base!.base}${hash}`;
+  return `${(EXPLORERS[chain] ?? EXPLORERS.base!).base}tx/${hash}`;
 }
 
-export const explorerAddressUrl = (chain: string, address: string) =>
-  `${(EXPLORERS[chain]?.base ?? EXPLORERS.base!.base).replace(/tx\/$/, "address/")}${address}`;
+export function explorerAddressUrl(chain: string, address: string): string | null {
+  const explorer = EXPLORERS[chain];
+  return explorer ? `${explorer.base}${explorer.address ?? "address/"}${address}` : null;
+}
 
-const EVM_EXPLORERS = ["eth", "base"];
+export const explorerName = (chain: string) => EXPLORERS[chain]?.label ?? null;
 
 /** The first hash is the sender's and the last lands on the destination. Any between may be on another chain. */
 export function explorerLinks(hashes: string[], fromAsset: string, toAsset: string) {
   const ends = hashes.length > 2 ? [hashes[0]!, hashes.at(-1)!] : hashes;
   return ends.flatMap((hash, index) => {
     const chain = (index === 0 ? fromAsset : toAsset).split(":")[0] ?? "";
-    // The provider's own chain can fill the last place until the delivery exists.
-    if (EVM_EXPLORERS.includes(chain) && !hash.startsWith("0x")) return [];
+    const explorer = EXPLORERS[chain];
+    // No link beats a wrong one. The provider's own chain can also fill the last place until delivery.
+    if (!explorer || (explorer.evm && !hash.startsWith("0x"))) return [];
     return [
       {
         hash,
         kind: index === 0 ? ("deposit" as const) : ("delivery" as const),
-        label: EXPLORERS[chain]?.label ?? "explorer",
+        label: explorer.label,
         url: explorerTxUrl(chain, hash),
       },
     ];
   });
 }
 
-export type RouteAction = "deposit" | "wallet" | "connect";
+export type RouteAction = "deposit" | "wallet" | "connect" | "unsupported";
 
-/** A plain transfer works from any wallet software; anything else needs a signature here. */
-export function routeAction(route: PublicRoute, connected: boolean): RouteAction {
+const SIGNING_CHAINS = ["eth", "base"];
+
+export const canSignOn = (asset: string) => SIGNING_CHAINS.includes(asset.split(":")[0] ?? "");
+
+/** A plain transfer works from any wallet software. Anything else needs a signature on a chain this page can use. */
+export function routeAction(route: PublicRoute, connected: boolean, sourceChain = "base"): RouteAction {
   if (route.depositable) return "deposit";
+  if (!SIGNING_CHAINS.includes(sourceChain)) return "unsupported";
   return connected ? "wallet" : "connect";
 }
 
@@ -439,6 +453,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   "invalid receiving address": "The receiving address doesn't fit the chain you're swapping to. Check it and try again.",
   insufficient_balance: "That wallet address doesn't hold this amount. Add funds or enter the wallet you'll send from.",
   price_busy: "Prices are busy. Try again in a few seconds.",
+  sample_address: "The swap provider treats one of those addresses as a sample. Enter a real wallet address you control.",
+  wallet_required: "That route needs a wallet signature on a chain this page can't use. Choose another route.",
   invalid_recipient: "The swap provider refused that receiving address, because funds sent there would be lost.",
   invalid_swap_token: "This quote can't be used from here. Get new quotes and try again.",
   too_many_requotes: "This quote has been refreshed too many times. Get new quotes and try again.",

@@ -1,30 +1,29 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { chainLogoOf, logoOf, symbolOf } from "./asset-book.ts";
 
-export const CHAIN_NAMES: Record<string, string> = {
-  base: "Base",
-  eth: "Ethereum",
-  btc: "Bitcoin",
-  sol: "Solana",
-  xrp: "XRP Ledger",
-};
+const FALLBACK_COLORS = ["#2775ca", "#627eea", "#f7931a", "#9945ff", "#26a17b", "#e84142", "#39424e"];
 
-const COINS: Record<string, { color: string; glyph: string }> = {
-  usdc: { color: "#2775ca", glyph: "$" },
-  eth: { color: "#627eea", glyph: "Ξ" },
-  btc: { color: "#f7931a", glyph: "₿" },
-  sol: { color: "#9945ff", glyph: "S" },
-  xrp: { color: "#39424e", glyph: "X" },
-};
-const CHAIN_DOTS: Record<string, string> = { base: "#0052ff", eth: "#8a9df0", btc: "#f7931a", sol: "#14f195", xrp: "#8d99a8" };
-
-/** A plain mark for an asset, with its chain as a dot. */
-export function Coin({ asset, size = 28 }: { asset: string; size?: number }) {
-  const [chain = "", symbol = ""] = asset.split(":");
-  const coin = COINS[symbol] ?? { color: "#555d7a", glyph: symbol.charAt(0).toUpperCase() };
+/** An asset's own logo with its chain as a badge, falling back to a letter if an image won't load. */
+export function Coin({ asset, size = 28, badge = true }: { asset: string; size?: number; badge?: boolean }) {
+  const [chain = ""] = asset.split(":");
+  const logo = logoOf(asset);
+  const chainLogo = chainLogoOf(chain);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [badgeFailed, setBadgeFailed] = useState<string | null>(null);
+  const symbol = symbolOf(asset);
+  const color = FALLBACK_COLORS[[...symbol].reduce((sum, letter) => sum + letter.charCodeAt(0), 0) % FALLBACK_COLORS.length];
   return (
-    <span className="coin" style={{ width: size, height: size, fontSize: size * 0.52, background: coin.color }} aria-hidden="true">
-      {coin.glyph}
-      <i style={{ background: CHAIN_DOTS[chain] ?? "#fff" }} />
+    <span className="coin" style={{ width: size, height: size, fontSize: size * 0.46 }} aria-hidden="true">
+      {logo && failed !== logo ? (
+        <img src={logo} alt="" width={size} height={size} loading="lazy" onError={() => setFailed(logo)} />
+      ) : (
+        <span className="coin-letter" style={{ background: color }}>
+          {symbol.charAt(0)}
+        </span>
+      )}
+      {badge && chainLogo && badgeFailed !== chainLogo && chainLogo !== logo && (
+        <img className="coin-chain" src={chainLogo} alt="" loading="lazy" onError={() => setBadgeFailed(chainLogo)} />
+      )}
     </span>
   );
 }
