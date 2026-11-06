@@ -30,3 +30,15 @@ The prize page gives a chain ID and RPC, while the SDK exports the same network 
 
 **What would help.** Round inside `fromSeconds`, or offer an option that does. The error message itself is excellent: it names the cause and suggests values.
 
+## A string field holds 128 bytes
+
+**What we expected.** To store a swap's transaction hashes as one comma-separated string.
+
+**What happened.** The first real swap had three legs, and the final update failed with `InvalidValueError: 178 UTF-8 bytes exceeds the 128-byte limit on a str`. Two 32-byte hashes in hex already exceed it. The record stayed at `executing` and was minutes from expiring, because the failed patch also skipped the extension that follows it.
+
+**How to reproduce.** Patch a `str()` field with a value longer than 128 bytes.
+
+**What we did.** We moved `txHashes` to a `bytes()` field, and repaired the record by hand while it still existed. The error message told us exactly what to do.
+
+**What would help.** A note about the limit next to `str()` in the docs, since fake clients in unit tests never hit it.
+

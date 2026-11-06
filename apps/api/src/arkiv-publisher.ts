@@ -34,7 +34,7 @@ export interface QuoteAttributes {
 export interface QuotePatch {
   status: string;
   amountReceived?: string;
-  txHashes?: string;
+  txHashes?: Uint8Array;
 }
 
 /** The SDK calls Crossfare needs, separated so the rules here are testable. */
@@ -89,7 +89,7 @@ export function createArkivPublisher(options: ArkivPublisherOptions): QuotePubli
       const patch: QuotePatch = {
         status: outcome.status,
         ...(outcome.amountReceived ? { amountReceived: outcome.amountReceived } : {}),
-        ...(outcome.txHashes?.length ? { txHashes: outcome.txHashes.join(",") } : {}),
+        ...(outcome.txHashes?.length ? { txHashes: new TextEncoder().encode(outcome.txHashes.join(",")) } : {}),
       };
       await enqueue(() => clients.patch(entityKey, patch));
       if (outcome.status === "completed") {

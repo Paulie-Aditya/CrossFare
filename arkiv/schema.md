@@ -19,7 +19,7 @@ Crossfare stores one entity per quoted route, on Arkiv's Rabdi testnet. The sche
 | `validUntil` | u64 | Yes | `1762339290` | Finding live quotes |
 | `payload` | bytes | No | JSON | The route in human units |
 | `amountReceived` | string | No | `0.0031` | What was delivered, next to what was quoted |
-| `txHashes` | string | No | `0x…,0x…` | Comma-separated execution transactions |
+| `txHashes` | bytes | No | `0x…,0x…` as UTF-8 | Comma-separated execution transactions |
 
 ## Queried fields
 

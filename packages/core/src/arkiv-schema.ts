@@ -15,5 +15,6 @@ export const QuoteSchema = defineSchema("crossfare-quote", {
   validUntil: u64().indexed(),
   payload: bytes(),
   amountReceived: str().optional(),
-  txHashes: str().optional(),
+  /** Comma-separated UTF-8. Bytes, because a str holds 128 bytes and two hashes exceed that. */
+  txHashes: bytes().optional(),
 });

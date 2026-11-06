@@ -91,7 +91,11 @@ describe("arkiv publisher", () => {
   it("records status and outcome, then extends a completed swap to 7 days", async () => {
     const c = clients();
     await publisher(c).updateQuote("0xkey", { status: "completed", amountReceived: "0.5", txHashes: ["0x1", "0x2"] });
-    expect(c.patch).toHaveBeenCalledWith("0xkey", { status: "completed", amountReceived: "0.5", txHashes: "0x1,0x2" });
+    expect(c.patch).toHaveBeenCalledWith("0xkey", {
+      status: "completed",
+      amountReceived: "0.5",
+      txHashes: new TextEncoder().encode("0x1,0x2"),
+    });
     expect(c.extend).toHaveBeenCalledWith("0xkey", 7 * 24 * 3600);
   });
 
