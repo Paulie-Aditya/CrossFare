@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   arkivEntityUrl,
   bestRoute,
+  buildQuoteRequest,
   defaultSlippage,
   errorMessage,
   explorerLinks,
@@ -203,6 +204,29 @@ describe("order page", () => {
       journeyStations({ ...onOrder, swapStatus: status }).find((station) => station.id === "confirm")!;
     expect(confirm("exchanging").detail).toMatch(/exchang/i);
     expect(confirm("confirming").detail).toMatch(/confirm|track/i);
+  });
+});
+
+describe("buildQuoteRequest", () => {
+  const form = { from: "eth:usdc", to: "base:eth", amount: "2", recipient: " 0xreceiver ", refundAddress: " 0xrefund ", slippage: "3" };
+
+  it("lets the deposit come from anywhere when no wallet is connected", () => {
+    expect(buildQuoteRequest(form, undefined)).toEqual({
+      from: { asset: "eth:usdc", amount: "2", address: "0xrefund" },
+      to: { asset: "base:eth", address: "0xreceiver" },
+      mode: "exact_in",
+      slippageBps: 300,
+      refundAddress: "0xrefund",
+      flexibleDeposit: true,
+    });
+  });
+
+  it("does the same when the connected wallet isn't the refund address", () => {
+    expect(buildQuoteRequest(form, "0xother").flexibleDeposit).toBe(true);
+  });
+
+  it("keeps the balance check when the connected wallet is the one sending", () => {
+    expect(buildQuoteRequest(form, "0xREFUND").flexibleDeposit).toBeUndefined();
   });
 });
 

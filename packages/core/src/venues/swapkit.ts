@@ -120,7 +120,7 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
         destinationAddress: request.to.address,
         ...(request.refundAddress ? { refundAddress: request.refundAddress } : {}),
         slippage: request.slippageBps / 100,
-        quoteType: exactIn ? "EXACT_INPUT" : "EXACT_OUTPUT",
+        quoteType: !exactIn ? "EXACT_OUTPUT" : request.flexibleDeposit ? "FLEX_INPUT" : "EXACT_INPUT",
       });
       if (response.status === 404) return [];
       if (!response.ok) {
@@ -155,6 +155,8 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
         sourceAddress: request.from.address,
         destinationAddress: request.to.address,
         ...(request.refundAddress ? { refundAddress: request.refundAddress } : {}),
+        // An exchange's funds aren't at this address, which only says where refunds go.
+        ...(request.flexibleDeposit ? { disableBalanceCheck: true } : {}),
       });
       if (!response.ok) {
         throw new VenueError(VENUE, response.status, `/v3/swap returned ${response.status}`, await refusalCode(response));

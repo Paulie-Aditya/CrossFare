@@ -274,6 +274,28 @@ export function walletMatches(connected: string | undefined, sender: string): bo
   return !!connected && connected.toLowerCase() === sender.trim().toLowerCase();
 }
 
+export interface SwapForm {
+  from: string;
+  to: string;
+  amount: string;
+  recipient: string;
+  refundAddress: string;
+  slippage: string;
+}
+
+/** Without the sending wallet connected, the deposit can come from anywhere, including an exchange. */
+export function buildQuoteRequest(form: SwapForm, connected: string | undefined) {
+  const refundAddress = form.refundAddress.trim();
+  return {
+    from: { asset: form.from, amount: form.amount, address: refundAddress },
+    to: { asset: form.to, address: form.recipient.trim() },
+    mode: "exact_in",
+    slippageBps: Math.round(Number(form.slippage) * 100),
+    refundAddress,
+    ...(walletMatches(connected, refundAddress) ? {} : { flexibleDeposit: true }),
+  };
+}
+
 export function formatDeadline(deadline: string, now: Date): string {
   const seconds = Math.floor((new Date(deadline).getTime() - now.getTime()) / 1000);
   if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
@@ -287,7 +309,7 @@ export function shorten(value: string): string {
 const ERROR_MESSAGES: Record<string, string> = {
   no_route: "No route supports this pair and amount. Try a larger amount or another pair.",
   venues_unavailable: "The swap venues did not answer. Try again in a moment.",
-  "invalid sending address": "Your wallet address doesn't fit the chain you're sending from. Check it and try again.",
+  "invalid sending address": "The refund address doesn't fit the chain you're sending from. Check it and try again.",
   "invalid receiving address": "The receiving address doesn't fit the chain you're swapping to. Check it and try again.",
   insufficient_balance: "That wallet address doesn't hold this amount. Add funds or enter the wallet you'll send from.",
   invalid_recipient: "The swap provider refused that receiving address, because funds sent there would be lost.",

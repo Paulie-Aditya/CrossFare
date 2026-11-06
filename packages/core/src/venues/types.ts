@@ -7,6 +7,8 @@ export interface QuoteRequest {
   mode: "exact_in" | "exact_out";
   slippageBps: number;
   refundAddress?: string;
+  /** The deposit may come from any sender, such as an exchange, and may differ slightly. */
+  flexibleDeposit?: boolean;
 }
 
 export interface UnsignedTransaction {

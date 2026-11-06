@@ -100,6 +100,7 @@ function parseQuoteRequest(input: unknown): { request: QuoteRequest } | { status
       mode,
       slippageBps,
       ...(body?.refundAddress ? { refundAddress: body.refundAddress } : {}),
+      ...(body?.flexibleDeposit === true ? { flexibleDeposit: true } : {}),
     },
   };
 }

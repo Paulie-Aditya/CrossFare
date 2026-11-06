@@ -289,6 +289,15 @@ describe("address checks on POST /v1/quote", () => {
     expect(venue.quote).not.toHaveBeenCalled();
   });
 
+  it("passes on that the deposit may come from anywhere, and only when asked", async () => {
+    const venue = fakeVenue("uniswap", [route("uniswap", "100")]);
+    const target = app([venue]);
+    await postQuote(target, { ...quoteBody, flexibleDeposit: true }, { "payment-signature": "a" });
+    await postQuote(target, { ...quoteBody, flexibleDeposit: "yes" }, { "payment-signature": "b" });
+    expect(venue.quote.mock.calls[0]![0].flexibleDeposit).toBe(true);
+    expect(venue.quote.mock.calls[1]![0].flexibleDeposit).toBeUndefined();
+  });
+
   it("accepts a receiving address different from the sender", async () => {
     const venue = fakeVenue("uniswap", [route("uniswap", "100")]);
     const other = "0x6dF69A2C97F8cFcBe5a04891ae0122942b8C24D1";

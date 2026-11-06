@@ -279,6 +279,27 @@ describe("swapkit deposit routes from an EVM wallet", () => {
     venueData: { routeId: "r" },
   };
 
+  it("asks for a flexible quote when the deposit may come from anywhere", async () => {
+    const fetch = fakeFetch({ "/v3/quote": () => json(quoteResponse) });
+    await venue(fetch).quote({ ...evmRequest, flexibleDeposit: true });
+    expect(JSON.parse(fetch.mock.calls[0]![1]?.body as string).quoteType).toBe("FLEX_INPUT");
+  });
+
+  it("keeps an exact quote otherwise", async () => {
+    const fetch = fakeFetch({ "/v3/quote": () => json(quoteResponse) });
+    await venue(fetch).quote(evmRequest);
+    expect(JSON.parse(fetch.mock.calls[0]![1]?.body as string).quoteType).toBe("EXACT_INPUT");
+  });
+
+  it("skips the balance check only when the deposit may come from anywhere", async () => {
+    const fetch = fakeFetch({ "/v3/swap": () => json(simpleTransfer) });
+    await venue(fetch).prepare(evmRoute, { ...evmRequest, flexibleDeposit: true });
+    await venue(fetch).prepare(evmRoute, evmRequest);
+    const bodies = fetch.mock.calls.map((call) => JSON.parse(call[1]?.body as string));
+    expect(bodies[0].disableBalanceCheck).toBe(true);
+    expect(bodies[1].disableBalanceCheck).toBeUndefined();
+  });
+
   it("marks a simple-transfer route as payable from any wallet software", async () => {
     const fetch = fakeFetch({
       "/v3/quote": () =>

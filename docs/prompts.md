@@ -43,3 +43,9 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 ## 9. Receiving address and a swap with no wallet connected
 
 > where are you asking for the receiving address? for cross chain this is important; and run a real swap, like fixedfloat, where wallet doesn't have to be connected
+
+## 10. Refund wording and exchange deposits
+
+> wording of this is wrong: Your wallet address on Ethereum
+> 0xEBdFd05075d84435de2d9A05336E7b2814e10cb5
+> It must already hold the amount. Refunds go back here. ; what if I want to deposit from an exchange?

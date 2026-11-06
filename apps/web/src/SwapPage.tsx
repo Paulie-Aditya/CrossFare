@@ -6,6 +6,7 @@ import { get, post } from "./api.ts";
 import {
   arkivEntityUrl,
   bestRoute,
+  buildQuoteRequest,
   defaultSlippage,
   explorerLinks,
   formatCountdown,
@@ -193,7 +194,9 @@ function OrderPanel(props: {
         </dl>
       </div>
       <p className="order-note">
-        Send from {shorten(sender)}. If the swap can't go ahead, your funds return to that address.
+        Send from any wallet or exchange, on {chainNameOf(deposit.asset)} only. If an exchange takes a withdrawal fee, add
+        it so the full amount arrives, because you receive less if less arrives. If the swap can't go ahead, your funds
+        return to {shorten(sender)}.
       </p>
       <div className="order-actions">
         {canSendWithWallet && matches && (
@@ -202,7 +205,7 @@ function OrderPanel(props: {
           </button>
         )}
         {canSendWithWallet && connected && !matches && (
-          <p className="order-note">Your connected wallet isn't {shorten(sender)}, so send the deposit from that wallet.</p>
+          <p className="order-note">Your connected wallet isn't the refund address, so send this deposit from your wallet app or exchange.</p>
         )}
         <button className="order-restart" onClick={props.onStartOver}>
           Start over
@@ -275,13 +278,10 @@ export function SwapPage() {
   async function getQuotes(event: React.FormEvent) {
     event.preventDefault();
     dispatch({ type: "quote_requested" });
-    const answer = await post("/demo/quote", {
-      from: { asset: from, amount, address: sender.trim() },
-      to: { asset: to, address: recipient.trim() },
-      mode: "exact_in",
-      slippageBps: Math.round(Number(slippage) * 100),
-      refundAddress: sender.trim(),
-    }).catch(() => null);
+    const answer = await post(
+      "/demo/quote",
+      buildQuoteRequest({ from, to, amount, recipient, refundAddress: sender, slippage }, address),
+    ).catch(() => null);
     if (!answer) return dispatch({ type: "failed", message: "Crossfare did not answer. Check your connection and try again." });
     if (!answer.ok) return dispatch({ type: "failed", message: answer.message });
     dispatch({
@@ -420,23 +420,25 @@ export function SwapPage() {
               />
             </label>
             <label className="field field-wide">
-              <span>Your wallet address on {chainNameOf(from)}</span>
+              <span>Refund address on {chainNameOf(from)}</span>
               <input
                 required
                 autoComplete="off"
                 spellCheck={false}
-                placeholder="The wallet you'll send from"
+                placeholder="A wallet you control"
                 value={sender}
                 onChange={(event) => setSender(event.target.value)}
               />
-              <small className="field-hint">It must already hold the amount. Refunds go back here.</small>
+              <small className="field-hint">
+                If the swap can't go ahead, your funds return here. Don't use an exchange address.
+              </small>
             </label>
             <button className="gate-action" disabled={busy}>
               {state.step === "quoting" ? "Getting quotes" : "Get quotes"}
             </button>
             <p className="gate-note">
-              No account or wallet connection needed. Swaps run on mainnet with your own funds. Crossfare's quote fee is
-              testnet USDC, and this demo pays it for you.
+              No account or wallet connection needed: you can send the deposit from any wallet or exchange. Swaps run on
+              mainnet with your own funds. Crossfare's quote fee is testnet USDC, and this demo pays it for you.
             </p>
           </form>
         )}
