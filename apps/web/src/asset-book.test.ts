@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { chainNameOf, displaySymbol, filterAssets, isEvmAsset, logoOf, setBook, symbolOf, type AssetOption } from "./asset-book.ts";
+import { chainNameOf, displaySymbol, filterAssets, isEvmAsset, logoOf, pickerMessage, setBook, symbolOf, type AssetOption } from "./asset-book.ts";
 
 const asset = (id: string, symbol: string, name: string, chain = id.split(":")[0]!): AssetOption => ({ id, chain, symbol, name, decimals: 18, evm: chain !== "btc", venues: [] });
 const assets = [
@@ -54,5 +54,17 @@ describe("reading the book", () => {
   it("keeps a ticker's own casing", () => {
     expect(displaySymbol("cbBTC")).toBe("cbBTC");
     expect(displaySymbol("eth")).toBe("ETH");
+  });
+});
+
+describe("pickerMessage", () => {
+  it("doesn't blame the search when the list hasn't loaded", () => {
+    expect(pickerMessage("failed", "")).toMatch(/isn't answering/);
+    expect(pickerMessage("failed", "usdc")).toMatch(/isn't answering/);
+    expect(pickerMessage("loading", "")).toMatch(/Loading/);
+  });
+
+  it("points at the search once the list is there", () => {
+    expect(pickerMessage("ready", "zzz")).toMatch(/No token matches/);
   });
 });

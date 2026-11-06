@@ -3,7 +3,7 @@ import { useAccount, useConfig, useSendTransaction, useSwitchChain } from "wagmi
 import { waitForTransactionReceipt } from "wagmi/actions";
 import { QRCodeSVG } from "qrcode.react";
 import { get, post } from "./api.ts";
-import { chainLabel, chainNameOf, isEvmAsset, symbolOf, type AssetOption, type ChainOption } from "./asset-book.ts";
+import { chainLabel, chainNameOf, isEvmAsset, symbolOf, type AssetOption, type CatalogStatus, type ChainOption } from "./asset-book.ts";
 import { Delivered } from "./Delivered.tsx";
 import {
   arkivEntityUrl,
@@ -336,8 +336,8 @@ function depositAddressLink(chain: string, address: string) {
   return url && label ? { label, url } : null;
 }
 
-export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOption[]; chains: ChainOption[] }) {
-  const { onConnectWallet, assets, chains } = props;
+export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOption[]; chains: ChainOption[]; catalogStatus: CatalogStatus }) {
+  const { onConnectWallet, assets, chains, catalogStatus } = props;
   const { address, chainId, isConnected } = useAccount();
   const config = useConfig();
   const { switchChainAsync } = useSwitchChain();
@@ -603,7 +603,7 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
                   value={amount}
                   onChange={(event) => setAmount(event.target.value.replace(",", "."))}
                 />
-                <TokenButton label="You send" asset={from} assets={assets} chains={chains} onPick={pickFrom} />
+                <TokenButton label="You send" asset={from} assets={assets} chains={chains} catalogStatus={catalogStatus} onPick={pickFrom} />
               </div>
               <p className={pricing && !shownUsd ? "swap-sub is-loading" : "swap-sub"}>{pricing ? " " : (formatUsd(shownUsd?.in) ?? " ")}</p>
             </div>
@@ -629,7 +629,7 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
                     "0"
                   )}
                 </output>
-                <TokenButton label="You receive" asset={to} assets={toOptions} chains={chains} onPick={setTo} />
+                <TokenButton label="You receive" asset={to} assets={toOptions} chains={chains} catalogStatus={catalogStatus} onPick={setTo} />
               </div>
               <p className={pricing ? "swap-sub is-loading" : "swap-sub"}>
                 {pricing

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { chainLogoOf, chainNameOf, displaySymbol, filterAssets, symbolOf, type AssetOption, type ChainOption } from "./asset-book.ts";
+import { chainLogoOf, chainNameOf, displaySymbol, filterAssets, pickerMessage, symbolOf, type AssetOption, type CatalogStatus, type ChainOption } from "./asset-book.ts";
 import { shorten } from "./journey.ts";
 import { Coin, Modal } from "./ui.tsx";
 
@@ -21,6 +21,7 @@ export function TokenButton(props: {
   asset: string;
   assets: readonly AssetOption[];
   chains: readonly ChainOption[];
+  catalogStatus: CatalogStatus;
   onPick: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -64,7 +65,7 @@ export function TokenButton(props: {
             ))}
           </div>
           {found.shown.length === 0 ? (
-            <p className="token-empty">No token matches that. Check the spelling, or paste its contract address.</p>
+            <p className="token-empty" role="status">{pickerMessage(props.catalogStatus, query)}</p>
           ) : (
             <ul className="token-list">
               {found.shown.map((option) => {
@@ -98,11 +99,11 @@ export function TokenButton(props: {
               })}
             </ul>
           )}
-          <p className="token-count">
+          {found.total > 0 && <p className="token-count">
             {found.total > found.shown.length
               ? `Showing ${found.shown.length} of ${found.total.toLocaleString("en-US")} tokens. Search to find the rest.`
               : `${found.total.toLocaleString("en-US")} ${found.total === 1 ? "token" : "tokens"}`}
-          </p>
+          </p>}
         </Modal>
       )}
     </>

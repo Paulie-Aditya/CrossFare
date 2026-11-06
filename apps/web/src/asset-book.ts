@@ -64,3 +64,13 @@ export function filterAssets(list: readonly AssetOption[], query: string, chain:
     .map((entry) => entry.asset);
   return { shown: found.slice(0, limit), total: found.length };
 }
+
+export type CatalogStatus = "loading" | "ready" | "failed";
+
+/** An empty picker can mean the list never arrived, which a person can't fix by searching differently. */
+export function pickerMessage(status: CatalogStatus, _query: string): string {
+  if (status === "loading") return "Loading tokens.";
+  if (status === "failed") return "Tokens can't load because Crossfare's API isn't answering. This retries by itself.";
+  return "No token matches that. Check the spelling, or paste its contract address.";
+}
+
