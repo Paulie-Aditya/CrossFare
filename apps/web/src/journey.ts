@@ -249,9 +249,10 @@ export function explorerTxUrl(chain: string, hash: string): string {
   return `${EXPLORERS[chain]?.base ?? EXPLORERS.base!.base}${hash}`;
 }
 
-/** The first hash is the sender's transaction; any later one lands on the destination. */
+/** The first hash is the sender's and the last lands on the destination. Any between may be on another chain. */
 export function explorerLinks(hashes: string[], fromAsset: string, toAsset: string) {
-  return hashes.map((hash, index) => {
+  const ends = hashes.length > 2 ? [hashes[0]!, hashes.at(-1)!] : hashes;
+  return ends.map((hash, index) => {
     const chain = (index === 0 ? fromAsset : toAsset).split(":")[0] ?? "";
     return { hash, label: EXPLORERS[chain]?.label ?? "explorer", url: explorerTxUrl(chain, hash) };
   });

@@ -232,7 +232,9 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
         return { status: "confirming" };
       }
 
-      const status = mapTrackStatus(tracked.status);
+      const mapped = mapTrackStatus(tracked.status);
+      // SwapKit lags a broadcast, but a sent transaction is no longer awaiting a deposit.
+      const status = mapped === "awaiting_deposit" && hash ? "confirming" : mapped;
       const legHashes = (tracked.legs ?? []).flatMap((leg) => (leg.hash && leg.hash !== "0x" ? [leg.hash] : []));
       return {
         status,

@@ -237,6 +237,12 @@ describe("form helpers", () => {
     expect(formatDeadline("2026-11-06T09:00:00Z", now)).toBe("Expired");
   });
 
+  it("skips a route's middle hash, which may be on neither chain", () => {
+    const links = explorerLinks(["0xa", "Ae9aaNiP", "0xb"], "eth:usdc", "base:usdc");
+    expect(links.map((link) => link.hash)).toEqual(["0xa", "0xb"]);
+    expect(links.map((link) => link.label)).toEqual(["Etherscan", "Basescan"]);
+  });
+
   it("links the first hash to the source chain and later ones to the destination", () => {
     expect(explorerLinks(["0xa", "0xb"], "eth:usdc", "base:eth")).toEqual([
       { hash: "0xa", label: "Etherscan", url: "https://etherscan.io/tx/0xa" },

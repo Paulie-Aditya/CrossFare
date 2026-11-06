@@ -338,6 +338,13 @@ describe("swapkit deposit routes from an EVM wallet", () => {
     expect(tracked.status).toBe("awaiting_deposit");
   });
 
+  it("reports confirming, not awaiting the deposit, once a transaction was sent", async () => {
+    const fetch = fakeFetch({ "/track": () => json({ status: "not_started" }) });
+    const prepared = { transactions: [], deposit: { asset: "eth:usdc", address: "0xvault", amount: "20", channelId: "c" } };
+    const tracked = await venue(fetch).track({ route: evmRoute, request: evmRequest, prepared, txHashes: ["0xhash"], venueSwapId: null });
+    expect(tracked.status).toBe("confirming");
+  });
+
   it("ignores the empty hash SwapKit reports before a deposit lands", async () => {
     const fetch = fakeFetch({ "/track": () => json({ status: "not_started", legs: [{ hash: "0x" }] }) });
     const prepared = { transactions: [], deposit: { asset: "eth:usdc", address: "0xvault", amount: "20" } };
