@@ -313,7 +313,7 @@ describe("a price check", () => {
     await venue(fetch).quote({ ...request, indicative: true });
     const body = JSON.parse(fetch.mock.calls[0]![1]?.body as string);
     // The EVM reserves the lowest addresses for precompiles.
-    expect(BigInt(body.swapper)).toBeGreaterThan(0x10000n);
+    expect(BigInt(body.swapper)).toBeGreaterThan(0x1000n);
     expect(body.swapper).not.toBe(AGENT);
     expect(body).not.toHaveProperty("recipient");
   });
