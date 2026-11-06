@@ -289,6 +289,12 @@ describe("address checks on POST /v1/quote", () => {
     expect(venue.quote).not.toHaveBeenCalled();
   });
 
+  it("returns dollar values when the venue knows them", async () => {
+    const venue = fakeVenue("swapkit", [route("swapkit", "100", { usd: { in: 2, out: 1.99 } })]);
+    const body = await (await postQuote(app([venue]))).json() as any;
+    expect(body.routes[0].usd).toEqual({ in: 2, out: 1.99 });
+  });
+
   it("passes on that the deposit may come from anywhere, and only when asked", async () => {
     const venue = fakeVenue("uniswap", [route("uniswap", "100")]);
     const target = app([venue]);
@@ -693,6 +699,47 @@ describe("swap status", () => {
     const response = await target.request(`/v1/swaps/${swapId}`);
     expect(response.status).toBe(200);
     expect((await (response.json() as Promise<any>)).status).toBe("awaiting_deposit");
+  });
+
+  describe("order window", () => {
+    async function order(expiresAt?: string) {
+      const venue = fakeVenue("swapkit", [route("swapkit", "100")]);
+      venue.prepare.mockResolvedValue({
+        transactions: [],
+        deposit: { asset: "eth:usdc", address: "0xvault", amount: "2", ...(expiresAt ? { expiresAt } : {}) },
+      });
+      (venue as unknown as { track: unknown }).track = vi.fn(async () => ({ status: "awaiting_deposit" }));
+      const target = app([venue], { trackIntervalMs: 0 });
+      const quoted = await (await postQuote(target)).json() as any;
+      const swap = await (
+        await target.request("/v1/swap", {
+          method: "POST",
+          body: JSON.stringify({ quoteId: quoted.routes[0].quoteId, swapToken: quoted.swapToken }),
+        })
+      ).json() as any;
+      return { target, swap };
+    }
+
+    it("caps a provider's 72-hour channel at 30 minutes", async () => {
+      const { swap } = await order("2026-11-09T10:00:00.000Z");
+      expect(swap.deposit.expiresAt).toBe("2026-11-06T10:30:00.000Z");
+    });
+
+    it("gives an order with no provider deadline 30 minutes too", async () => {
+      expect((await order()).swap.deposit.expiresAt).toBe("2026-11-06T10:30:00.000Z");
+    });
+
+    it("keeps a provider deadline that is already shorter", async () => {
+      const { swap } = await order("2026-11-06T10:10:00.000Z");
+      expect(swap.deposit.expiresAt).toBe("2026-11-06T10:10:00.000Z");
+    });
+
+    it("reports the order as expired after 30 minutes with nothing sent", async () => {
+      const { target, swap } = await order("2026-11-09T10:00:00.000Z");
+      currentTime = new Date("2026-11-06T10:31:00.000Z");
+      const status = await (await target.request(`/v1/swaps/${swap.swapId}`)).json() as any;
+      expect(status.status).toBe("expired");
+    });
   });
 
   it("expires a deposit whose deadline passed with nothing sent", async () => {

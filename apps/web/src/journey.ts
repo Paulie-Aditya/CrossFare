@@ -8,6 +8,7 @@ export interface PublicRoute {
   etaSeconds: number;
   validUntil: string;
   depositable?: boolean;
+  usd?: { in: number; out: number };
   arkiv: { entityKey: string | null; pending: boolean };
 }
 
@@ -294,6 +295,24 @@ export function buildQuoteRequest(form: SwapForm, connected: string | undefined)
     refundAddress,
     ...(walletMatches(connected, refundAddress) ? {} : { flexibleDeposit: true }),
   };
+}
+
+/** Keeps enough digits to read a price, without eighteen decimals. */
+export function formatAmount(amount: string | number): string {
+  const value = Number(amount);
+  if (!Number.isFinite(value)) return String(amount);
+  return value.toLocaleString("en-US", { maximumSignificantDigits: 5 });
+}
+
+export function formatRate(amountIn: string, amountOut: string, fromSymbol: string, toSymbol: string): string | null {
+  const sold = Number(amountIn);
+  if (!(sold > 0)) return null;
+  return `1 ${fromSymbol} = ${formatAmount(Number(amountOut) / sold)} ${toSymbol}`;
+}
+
+export function formatUsd(value: number | undefined): string | null {
+  if (value === undefined) return null;
+  return value < 0.01 ? "<$0.01" : `$${value.toFixed(2)}`;
 }
 
 export function formatDeadline(deadline: string, now: Date): string {

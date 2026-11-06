@@ -16,6 +16,8 @@ export interface Route {
   fees: Record<string, string>;
   etaSeconds: number;
   validUntil: string;
+  /** Approximate dollar values of what's sent and expected, when the venue gives prices. */
+  usd?: { in: number; out: number };
   /** True when a plain transfer to a deposit address pays for it, with no contract call. */
   depositable?: boolean;
   /** Venue-specific state needed to execute. Private: never published or returned. */

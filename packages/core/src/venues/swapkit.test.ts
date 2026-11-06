@@ -279,6 +279,30 @@ describe("swapkit deposit routes from an EVM wallet", () => {
     venueData: { routeId: "r" },
   };
 
+  it("works out dollar values from SwapKit's asset prices, whatever their case", async () => {
+    const priced = {
+      ...apiRoute,
+      expectedBuyAmount: "0.001",
+      expectedBuyAmountMaxSlippage: "0.0009",
+      meta: {
+        assets: [
+          { asset: "ETH.USDC-0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", price: 0.999465 },
+          { asset: "BASE.ETH", price: 2232.29 },
+        ],
+      },
+    };
+    const fetch = fakeFetch({ "/v3/quote": () => json({ routes: [priced] }) });
+    const [route] = await venue(fetch).quote(evmRequest);
+    expect(route!.usd!.in).toBeCloseTo(19.9893, 3);
+    expect(route!.usd!.out).toBeCloseTo(2.23229, 4);
+  });
+
+  it("leaves dollar values out when SwapKit gives no prices", async () => {
+    const fetch = fakeFetch({ "/v3/quote": () => json(quoteResponse) });
+    const [route] = await venue(fetch).quote(evmRequest);
+    expect(route!.usd).toBeUndefined();
+  });
+
   it("asks for a flexible quote when the deposit may come from anywhere", async () => {
     const fetch = fakeFetch({ "/v3/quote": () => json(quoteResponse) });
     await venue(fetch).quote({ ...evmRequest, flexibleDeposit: true });

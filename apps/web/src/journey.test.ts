@@ -7,7 +7,10 @@ import {
   errorMessage,
   explorerLinks,
   explorerTxUrl,
+  formatAmount,
   formatCountdown,
+  formatRate,
+  formatUsd,
   formatDeadline,
   hashscanUrl,
   initialJourney,
@@ -194,6 +197,11 @@ describe("order page", () => {
     expect(reduceJourney(sent, { type: "status", status: "awaiting_deposit" }).swapStatus).toBe("confirming");
   });
 
+  it("treats an expired order as finished, so nobody sends to it", () => {
+    const state = reduceJourney(onOrder, { type: "status", status: "expired" });
+    expect(state).toMatchObject({ step: "finished", swapStatus: "expired" });
+  });
+
   it("names the deposit in the transit line", () => {
     const sign = journeyStations(onOrder).find((station) => station.id === "sign")!;
     expect(sign.name).toBe("Send your deposit");
@@ -204,6 +212,29 @@ describe("order page", () => {
       journeyStations({ ...onOrder, swapStatus: status }).find((station) => station.id === "confirm")!;
     expect(confirm("exchanging").detail).toMatch(/exchang/i);
     expect(confirm("confirming").detail).toMatch(/confirm|track/i);
+  });
+});
+
+describe("price display", () => {
+  it("shows the rate per unit sold, like a wallet does", () => {
+    expect(formatRate("2", "0.000890709113796507", "USDC", "ETH")).toBe("1 USDC = 0.00044535 ETH");
+    expect(formatRate("0.01", "22.3", "ETH", "USDC")).toBe("1 ETH = 2,230 USDC");
+  });
+
+  it("gives no rate for an empty amount", () => {
+    expect(formatRate("0", "1", "USDC", "ETH")).toBeNull();
+  });
+
+  it("shows dollars to the cent, and small values clearly", () => {
+    expect(formatUsd(1.987)).toBe("$1.99");
+    expect(formatUsd(0.004)).toBe("<$0.01");
+    expect(formatUsd(undefined)).toBeNull();
+  });
+
+  it("trims long amounts without changing small ones", () => {
+    expect(formatAmount("0.000863987840382612")).toBe("0.00086399");
+    expect(formatAmount("1.997376")).toBe("1.9974");
+    expect(formatAmount("2")).toBe("2");
   });
 });
 

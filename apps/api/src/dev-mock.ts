@@ -25,6 +25,7 @@ function fakeVenue(name: string, routes: () => Partial<Route>[], eta: number): V
         validUntil: validUntil(180),
         venueData: null,
         depositable: name === "swapkit",
+        usd: { in: 2, out: 1.97 },
         ...route,
       }));
     },

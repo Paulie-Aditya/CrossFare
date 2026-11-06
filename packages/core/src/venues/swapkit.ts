@@ -28,6 +28,16 @@ const TRACK_STATUS: Record<string, SwapStatus> = {
   failed: "failed",
 };
 
+/** SwapKit lists prices per asset, in a case that differs from the identifiers we send. */
+function usdValues(route: ApiRoute, sold: string, soldAmount: string, bought: string): Route["usd"] {
+  const priceOf = (id: string) =>
+    route.meta?.assets?.find((entry) => entry.asset.toLowerCase() === id.toLowerCase())?.price;
+  const soldPrice = priceOf(sold);
+  const boughtPrice = priceOf(bought);
+  if (soldPrice === undefined || boughtPrice === undefined) return undefined;
+  return { in: Number(soldAmount) * soldPrice, out: Number(route.expectedBuyAmount) * boughtPrice };
+}
+
 /** SwapKit fills legs with "0x" or an all-zero hash until a transaction exists. */
 const isRealHash = (hash: string) => !/^0x0*$/.test(hash);
 
@@ -50,6 +60,7 @@ interface ApiRoute {
   fees?: ApiFee[];
   estimatedTime?: { total?: number };
   txHint?: string;
+  meta?: { assets?: { asset: string; price?: number }[] };
 }
 
 interface ApiEvmTx {
@@ -130,7 +141,9 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
       const { routes } = (await response.json()) as { routes?: ApiRoute[] };
       const validUntil = new Date(now().getTime() + QUOTE_TTL_MS).toISOString();
 
-      return (routes ?? []).map((route) => ({
+      return (routes ?? []).map((route) => {
+        const usd = usdValues(route, from.swapkit, request.from.amount, to.swapkit);
+        return {
         venue: VENUE,
         provider: route.providers.join("+").toLowerCase(),
         from: from.id,
@@ -144,8 +157,10 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
         etaSeconds: route.estimatedTime?.total ?? 0,
         validUntil,
         depositable: route.txHint === "simpleTransfer",
+        ...(usd ? { usd } : {}),
         venueData: { routeId: route.routeId },
-      }));
+        };
+      });
     },
 
     async prepare(route: Route, request: QuoteRequest): Promise<PreparedSwap> {

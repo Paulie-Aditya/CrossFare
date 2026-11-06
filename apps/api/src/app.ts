@@ -64,6 +64,9 @@ export interface AppDeps {
 /** Bounds what one paid quote can make Crossfare write to Arkiv through re-quotes. */
 const MAX_QUOTES_PER_REQUEST = 20;
 
+/** Providers keep channels open for days, but a price shouldn't be promised that long. */
+const ORDER_WINDOW_MS = 30 * 60_000;
+
 const UNISWAP_VENUE = "uniswap";
 const SWAPKIT_VENUE = "swapkit";
 
@@ -116,6 +119,7 @@ function humanRoute(route: Route) {
     etaSeconds: route.etaSeconds,
     validUntil: route.validUntil,
     depositable: route.depositable ?? false,
+    ...(route.usd ? { usd: route.usd } : {}),
   };
 }
 
@@ -254,6 +258,16 @@ export function createApp(deps: AppDeps): Hono {
     }
   });
 
+  function capOrderWindow(prepared: PreparedSwap): PreparedSwap {
+    if (!prepared.deposit) return prepared;
+    const limit = now().getTime() + ORDER_WINDOW_MS;
+    const venueDeadline = prepared.deposit.expiresAt ? new Date(prepared.deposit.expiresAt).getTime() : Infinity;
+    return {
+      ...prepared,
+      deposit: { ...prepared.deposit, expiresAt: new Date(Math.min(limit, venueDeadline)).toISOString() },
+    };
+  }
+
   const swapBody = (swapId: string, venue: string, provider: string | undefined, prepared: PreparedSwap) => ({
     swapId,
     venue,
@@ -321,7 +335,7 @@ export function createApp(deps: AppDeps): Hono {
 
       let prepared: PreparedSwap;
       try {
-        prepared = await venue.prepare(fresh, request);
+        prepared = capOrderWindow(await venue.prepare(fresh, request));
       } catch (error) {
         if (error instanceof VenueError && error.code) return { status: 422, body: { error: error.code } };
         throw error;
