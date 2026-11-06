@@ -1,10 +1,11 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { HTTPFacilitatorClient } from "@x402/core/server";
-import { createPublicClient, http, type Hash } from "viem";
+import { createPublicClient, erc20Abi, fallback, http, type Address, type Hash } from "viem";
 import { base, mainnet } from "viem/chains";
 import { createSwapKitScreen, createSwapKitVenue, createUniswapVenue, type GetReceipt } from "@crossfare/core";
 import { createApp } from "./app.ts";
+import { createDepositWatcher } from "./deposit-watcher.ts";
 import { connectArkiv, createArkivPublisher } from "./arkiv-publisher.ts";
 import { loadConfig } from "./config.ts";
 import { mountDemo } from "./demo.ts";
@@ -17,8 +18,17 @@ const config = loadConfig(process.env);
 
 const readers = {
   [base.id]: createPublicClient({ chain: base, transport: http(config.baseRpcUrl) }),
-  [mainnet.id]: createPublicClient({ chain: mainnet, transport: http() }),
+  [mainnet.id]: createPublicClient({
+    chain: mainnet,
+    transport: fallback([...(config.ethereumRpcUrl ? [http(config.ethereumRpcUrl)] : []), http("https://ethereum-rpc.publicnode.com"), http("https://eth.drpc.org"), http()]),
+  }),
 };
+
+const balancesOn = (reader: (typeof readers)[keyof typeof readers]) => ({
+  tokenBalance: (token: string, holder: string) =>
+    reader.readContract({ address: token as Address, abi: erc20Abi, functionName: "balanceOf", args: [holder as Address] }),
+  nativeBalance: (holder: string) => reader.getBalance({ address: holder as Address }),
+});
 
 const getReceipt: GetReceipt = async (chainId, hash) => {
   const reader = readers[chainId as keyof typeof readers];
@@ -45,6 +55,7 @@ const app = createApp({
   payTo: config.payToAccount,
   ...(config.swapPriceUsd ? { swapPriceUsd: config.swapPriceUsd } : {}),
   arkivWriter: arkiv.writer,
+  depositSeen: createDepositWatcher({ [base.id]: balancesOn(readers[base.id]), [mainnet.id]: balancesOn(readers[mainnet.id]) }),
   screen: createSwapKitScreen({ apiKey: config.swapkitApiKey }),
 });
 

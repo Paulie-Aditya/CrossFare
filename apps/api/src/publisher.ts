@@ -7,6 +7,8 @@ export interface PublicQuote {
   toAsset: string;
   payer: string;
   status: string;
+  /** One readable line about the swap, with no addresses. */
+  summary?: string;
   createdAt: number;
   validUntil: number;
   /** Normalized route in human units. */
@@ -15,6 +17,7 @@ export interface PublicQuote {
 
 export interface QuoteOutcome {
   status: string;
+  summary?: string;
   amountReceived?: string;
   txHashes?: string[];
 }

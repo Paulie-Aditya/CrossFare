@@ -47,7 +47,7 @@ describe("arkiv publisher", () => {
       fromAsset: "base:usdc",
       toAsset: "base:eth",
       payer: "0.0.51234",
-      status: "quoted",
+      status: "Quoted",
     });
     expect(attributes.createdAt).toBe(BigInt(quote.createdAt));
     expect(attributes.validUntil).toBe(BigInt(quote.validUntil));
@@ -92,7 +92,7 @@ describe("arkiv publisher", () => {
     const c = clients();
     await publisher(c).updateQuote("0xkey", { status: "completed", amountReceived: "0.5", txHashes: ["0x1", "0x2"] });
     expect(c.patch).toHaveBeenCalledWith("0xkey", {
-      status: "completed",
+      status: "Completed",
       amountReceived: "0.5",
       txHashes: new TextEncoder().encode("0x1,0x2"),
     });
@@ -102,7 +102,7 @@ describe("arkiv publisher", () => {
   it("does not extend a record that isn't completed", async () => {
     const c = clients();
     await publisher(c).updateQuote("0xkey", { status: "executing" });
-    expect(c.patch).toHaveBeenCalledWith("0xkey", { status: "executing" });
+    expect(c.patch).toHaveBeenCalledWith("0xkey", { status: "In progress" });
     expect(c.extend).not.toHaveBeenCalled();
   });
 
@@ -126,3 +126,27 @@ describe("arkiv publisher", () => {
     expect(seconds).toBeGreaterThanOrEqual(60 + offset + 120);
   });
 });
+
+describe("arkiv records read like transaction history", () => {
+  it.each([
+    ["quoted", "Quoted"],
+    ["executing", "In progress"],
+    ["completed", "Completed"],
+    ["refunded", "Refunded"],
+    ["failed", "Failed"],
+    ["expired", "Expired"],
+  ])("writes %s as %s", async (status, label) => {
+    const c = clients();
+    await publisher(c).updateQuote("0xkey", { status });
+    expect(c.patch.mock.calls[0]![1].status).toBe(label);
+  });
+
+  it("writes the one-line summary with the quote and with the outcome", async () => {
+    const c = clients();
+    await publisher(c).publishQuote({ ...quote, summary: "5 USDC on Ethereum for about 1 ETH on Base" });
+    expect(c.create.mock.calls[0]![0].summary).toBe("5 USDC on Ethereum for about 1 ETH on Base");
+    await publisher(c).updateQuote("0xkey", { status: "completed", summary: "Swapped 5 USDC on Ethereum for 1 ETH on Base" });
+    expect(c.patch.mock.calls[0]![1].summary).toBe("Swapped 5 USDC on Ethereum for 1 ETH on Base");
+  });
+});
+

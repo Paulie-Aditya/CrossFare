@@ -14,6 +14,9 @@ import {
   type ScreenAddresses,
   type SwapStatus,
   type Venue,
+  describeSwap,
+  withUsdValues,
+  type Deposit,
 } from "@crossfare/core";
 import {
   PAYMENT_NETWORK,
@@ -56,6 +59,12 @@ export interface AppDeps {
   newId?: (prefix: string) => string;
   /** The least time between status calls to a venue for one swap. */
   trackIntervalMs?: number;
+  /** Reads the chain for a deposit, which is often visible before a venue reports it. */
+  depositSeen?: (deposit: Deposit) => Promise<boolean>;
+  /** The least time between chain reads for one swap. */
+  depositWatchMs?: number;
+  /** The least time between price checks to the venues, across all callers. */
+  priceIntervalMs?: number;
   /** How long a quote response waits for Arkiv before flagging the write as pending. */
   publishTimeoutMs?: number;
   onError?: (context: string, error: unknown) => void;
@@ -123,6 +132,30 @@ function humanRoute(route: Route) {
   };
 }
 
+interface PriceAnswer {
+  amount: string;
+  amountOut: string;
+  venue: string;
+  provider?: string;
+  usd?: { in: number; out: number };
+  etaSeconds: number;
+  estimated: boolean;
+}
+
+const PRICE_CACHE_MS = 20_000;
+
+/** A price check at another amount, using the last rate seen for the pair. */
+function scalePrice(known: PriceAnswer, amount: string): PriceAnswer {
+  const ratio = Number(amount) / Number(known.amount);
+  return {
+    ...known,
+    amount,
+    amountOut: String(Number(known.amountOut) * ratio),
+    ...(known.usd ? { usd: { in: known.usd.in * ratio, out: known.usd.out * ratio } } : {}),
+    estimated: true,
+  };
+}
+
 const TERMINAL: readonly SwapStatus[] = ["completed", "refunded", "failed", "expired"];
 
 const toSeconds = (iso: string) => Math.floor(new Date(iso).getTime() / 1000);
@@ -139,8 +172,14 @@ export function createApp(deps: AppDeps): Hono {
   const newId = deps.newId ?? ((prefix: string) => `${prefix}_${randomUUID().replaceAll("-", "").slice(0, 16)}`);
   const publishTimeoutMs = deps.publishTimeoutMs ?? 8_000;
   // SwapKit gives a new key 10 requests a minute per service, however often callers poll.
-  const trackIntervalMs = deps.trackIntervalMs ?? 15_000;
+  const trackIntervalMs = deps.trackIntervalMs ?? 10_000;
   const lastTracked = new Map<string, number>();
+  const depositWatchMs = deps.depositWatchMs ?? 4_000;
+  const lastWatched = new Map<string, number>();
+  const priceIntervalMs = deps.priceIntervalMs ?? 7_000;
+  const priceCache = new Map<string, { at: number; answer: PriceAnswer }>();
+  const pairRates = new Map<string, PriceAnswer>();
+  let lastPriceCall = -Infinity;
   const onError = deps.onError ?? ((context, error) => console.error(context, error));
   const guard = createPaymentGuard({ gateway: deps.gateway, store, audit: deps.audit, onError });
   const swapEndpoint: PricedEndpoint = { ...SWAP_ENDPOINT, priceUsd: deps.swapPriceUsd || SWAP_ENDPOINT.priceUsd };
@@ -181,6 +220,7 @@ export function createApp(deps: AppDeps): Hono {
       toAsset: route.to,
       payer,
       status: "quoted",
+      summary: describeSwap({ from: route.from, to: route.to, amountIn: route.amountIn, amountOut: route.amountOut, outcome: "quoted" }),
       createdAt: Math.floor(now().getTime() / 1000),
       validUntil: toSeconds(route.validUntil),
       payload: { requestId, from: route.from, to: route.to, ...publicRoute },
@@ -225,7 +265,7 @@ export function createApp(deps: AppDeps): Hono {
       { endpoint: QUOTE_ENDPOINT, url: c.req.url, header: paymentHeader(c.req) },
       async (payer) => {
         const answers = await Promise.allSettled(venues.map((venue) => venue.quote(request)));
-        const routes = answers.flatMap((answer) => (answer.status === "fulfilled" ? answer.value : []));
+        const routes = withUsdValues(answers.flatMap((answer) => (answer.status === "fulfilled" ? answer.value : [])));
         for (const answer of answers) {
           if (answer.status === "rejected") onError("venue quote failed", answer.reason);
         }
@@ -378,11 +418,79 @@ export function createApp(deps: AppDeps): Hono {
     return c.json({ swapId: swap.id, txHashes: store.getSwap(swap.id)?.txHashes });
   });
 
+  /**
+   * The price shown while someone types. It is free, unpublished and can't be executed:
+   * only a paid quote gets an ID. The venues rate-limit Crossfare, so callers share a
+   * cache and an interval, and fall back on the pair's last rate.
+   */
+  app.get("/v1/price", async (c) => {
+    const from = c.req.query("from") ?? "";
+    const to = c.req.query("to") ?? "";
+    const amount = c.req.query("amount") ?? "";
+    let positive = false;
+    try {
+      positive = /^[0-9]*\.?[0-9]+$/.test(amount) && toBaseUnits(amount, getAsset(from).decimals) > 0n && !!getAsset(to);
+    } catch {
+      positive = false;
+    }
+    if (!positive || from === to) return c.json({ error: "invalid_price_request" }, 400);
+
+    const time = now().getTime();
+    const key = `${from}|${to}|${amount}`;
+    const cached = priceCache.get(key);
+    if (cached && time - cached.at < PRICE_CACHE_MS) return c.json(cached.answer);
+
+    if (time - lastPriceCall < priceIntervalMs) {
+      const known = pairRates.get(`${from}|${to}`);
+      return known ? c.json(scalePrice(known, amount)) : c.json({ error: "price_busy" }, 429);
+    }
+    lastPriceCall = time;
+
+    const sameChain = from.split(":")[0] === to.split(":")[0];
+    const request: QuoteRequest = {
+      from: { asset: from, amount, address: "" },
+      to: { asset: to, address: "" },
+      mode: "exact_in",
+      slippageBps: sameChain ? 50 : 300,
+      indicative: true,
+    };
+    const answers = await Promise.allSettled(venues.map((venue) => venue.quote(request)));
+    const routes = rankRoutes(withUsdValues(answers.flatMap((answer) => (answer.status === "fulfilled" ? answer.value : []))));
+    const best = routes[0];
+    if (!best) {
+      const allFailed = answers.length > 0 && answers.every((answer) => answer.status === "rejected");
+      return allFailed ? c.json({ error: "venues_unavailable" }, 502) : c.json({ error: "no_route" }, 422);
+    }
+    const answer: PriceAnswer = {
+      amount,
+      amountOut: fromBaseUnits(best.amountOut, getAsset(to).decimals),
+      venue: best.venue,
+      ...(best.provider ? { provider: best.provider } : {}),
+      ...(best.usd ? { usd: best.usd } : {}),
+      etaSeconds: best.etaSeconds,
+      estimated: false,
+    };
+    priceCache.set(key, { at: time, answer });
+    pairRates.set(`${from}|${to}`, answer);
+    return c.json(answer);
+  });
+
   app.get("/v1/swaps/:id", async (c) => {
     const swap = store.getSwap(c.req.param("id"));
     if (!swap) return c.json({ error: "unknown_swap" }, 404);
     const quote = store.getQuote(swap.quoteId);
     if (!quote) return c.json({ error: "unknown_quote" }, 404);
+
+    const deposit = (swap.prepared as PreparedSwap).deposit;
+    const watchDue = now().getTime() - (lastWatched.get(swap.id) ?? -Infinity) >= depositWatchMs;
+    if (swap.status === "awaiting_deposit" && deposit && deps.depositSeen && watchDue) {
+      lastWatched.set(swap.id, now().getTime());
+      const seen = await deps.depositSeen(deposit).catch((error: unknown) => {
+        onError(`deposit check failed for ${swap.id}`, error);
+        return false;
+      });
+      if (seen) store.updateSwap(swap.id, { status: "confirming" });
+    }
 
     const due = now().getTime() - (lastTracked.get(swap.id) ?? -Infinity) >= trackIntervalMs;
     if (!TERMINAL.includes(swap.status) && due) {
@@ -400,6 +508,12 @@ export function createApp(deps: AppDeps): Hono {
       arkiv: { entityKey: quote.entityKey ?? null },
     });
   });
+
+  function outcomeSummary(route: Route, outcome: string, received?: string) {
+    const decimals = getAsset(route.to).decimals;
+    const amountOut = received ? toBaseUnits(received, decimals).toString() : route.amountOut;
+    return describeSwap({ from: route.from, to: route.to, amountIn: route.amountIn, amountOut, outcome });
+  }
 
   /** Advances a swap from the venue. A tracking failure leaves the last known status. */
   async function refreshSwap(swapId: string, quote: NonNullable<ReturnType<Store["getQuote"]>>) {
@@ -420,7 +534,9 @@ export function createApp(deps: AppDeps): Hono {
       const deadline = prepared.deposit?.expiresAt;
       const lapsed =
         tracked.status === "awaiting_deposit" && deadline && now().getTime() > new Date(deadline).getTime();
-      const status: SwapStatus = lapsed ? "expired" : tracked.status;
+      // A venue can lag the chain, and a swap that has started must not read as unstarted.
+      const lagging = tracked.status === "awaiting_deposit" && swap.status !== "awaiting_deposit";
+      const status: SwapStatus = lagging ? swap.status : lapsed ? "expired" : tracked.status;
 
       store.updateSwap(swap.id, {
         status,
@@ -432,6 +548,7 @@ export function createApp(deps: AppDeps): Hono {
         await publisher
           .updateQuote(quote.entityKey, {
             status,
+            summary: outcomeSummary(quote.route as Route, status, tracked.amountReceived),
             ...(tracked.amountReceived ? { amountReceived: tracked.amountReceived } : {}),
             ...(tracked.txHashes ? { txHashes: tracked.txHashes } : {}),
           })

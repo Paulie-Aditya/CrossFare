@@ -659,6 +659,7 @@ describe("swap status", () => {
     });
     expect(publisher.updateQuote).toHaveBeenCalledWith(`0xentity-${quoteId}`, {
       status: "completed",
+      summary: "Swapped 2 USDC on Base for 0.5 ETH on Base",
       amountReceived: "0.5",
       txHashes: ["0x1", "0x2"],
     });
@@ -764,3 +765,147 @@ describe("swap status", () => {
     expect(status.status).toBe("expired");
   });
 });
+
+describe("deposit detection", () => {
+  const deposit = { asset: "eth:usdc", address: "0xdeposit", amount: "5", channelId: "c1" };
+
+  async function openOrder(overrides: Partial<AppDeps>, track: Venue["track"]) {
+    const venue = fakeVenue("swapkit", [route("swapkit", "100", { from: "eth:usdc", to: "base:eth" })]);
+    venue.prepare.mockResolvedValue({ transactions: [], deposit });
+    (venue as Venue).track = track;
+    const target = app([venue], { ...overrides, trackIntervalMs: 0 });
+    const quoted = (await (await postQuote(target, { ...quoteBody, from: { ...quoteBody.from, asset: "eth:usdc" }, to: { ...quoteBody.to, asset: "base:eth" } })).json()) as any;
+    const swapped = (await (
+      await target.request("/v1/swap", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...PAID },
+        body: JSON.stringify({ quoteId: quoted.routes[0].quoteId, swapToken: quoted.swapToken }),
+      })
+    ).json()) as any;
+    const poll = async () => ((await (await target.request(`/v1/swaps/${swapped.swapId}`)).json()) as any).status as string;
+    return { poll };
+  }
+
+  it("moves on as soon as the chain shows the deposit, before the venue notices", async () => {
+    const depositSeen = vi.fn(async () => true);
+    const { poll } = await openOrder({ depositSeen }, async () => ({ status: "awaiting_deposit" }));
+    expect(await poll()).toBe("confirming");
+    expect(depositSeen).toHaveBeenCalledWith(expect.objectContaining(deposit));
+  });
+
+  it("does not go back to awaiting when the venue lags the chain", async () => {
+    let seen = true;
+    const { poll } = await openOrder({ depositSeen: async () => seen }, async () => ({ status: "awaiting_deposit" }));
+    await poll();
+    seen = false;
+    expect(await poll()).toBe("confirming");
+  });
+
+  it("stays awaiting when the chain shows nothing", async () => {
+    const { poll } = await openOrder({ depositSeen: async () => false }, async () => ({ status: "awaiting_deposit" }));
+    expect(await poll()).toBe("awaiting_deposit");
+  });
+
+  it("survives a chain reader failing", async () => {
+    const { poll } = await openOrder({ depositSeen: async () => { throw new Error("rpc down"); } }, async () => ({ status: "awaiting_deposit" }));
+    expect(await poll()).toBe("awaiting_deposit");
+  });
+
+  it("still advances when the venue can't be reached", async () => {
+    const { poll } = await openOrder({ depositSeen: async () => true }, async () => { throw new Error("fetch failed"); });
+    expect(await poll()).toBe("confirming");
+  });
+});
+
+describe("arkiv summaries", () => {
+  it("publishes a readable line with each quote", async () => {
+    await postQuote(app([fakeVenue("uniswap", [route("uniswap", "1000000000000000")])]));
+    expect(publisher.publishQuote.mock.calls[0]![0].summary).toBe("2 USDC on Base for about 0.001 ETH on Base");
+  });
+});
+
+describe("GET /v1/price", () => {
+  const priced = (provider: string, out: string) => route("swapkit", out, { provider, usd: { in: 5, out: 4.9 } });
+  const ask = (target: ReturnType<typeof app>, amount = "2") => target.request(`/v1/price?from=base:usdc&to=base:eth&amount=${amount}`);
+
+  it("returns the best indicative price, free and with nothing published", async () => {
+    const venue = fakeVenue("swapkit", [priced("near", "1000000000000000"), priced("flashnet", "2000000000000000")]);
+    const response = await ask(app([venue]));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ amountOut: "0.002", provider: "flashnet", usd: { in: 5, out: 4.9 }, estimated: false });
+    expect(publisher.publishQuote).not.toHaveBeenCalled();
+    expect(settle).not.toHaveBeenCalled();
+    expect(venue.quote.mock.calls[0]![0]).toMatchObject({ indicative: true });
+  });
+
+  it("holds nothing that could execute a swap", async () => {
+    const body = await (await ask(app([fakeVenue("swapkit", [priced("near", "1000")])]))).json();
+    expect(JSON.stringify(body)).not.toContain("venue-state");
+    expect(body).not.toHaveProperty("quoteId");
+    expect(body).not.toHaveProperty("swapToken");
+  });
+
+  it("answers the same request from its cache", async () => {
+    const venue = fakeVenue("swapkit", [priced("near", "1000")]);
+    const target = app([venue]);
+    await ask(target);
+    await ask(target);
+    expect(venue.quote).toHaveBeenCalledTimes(1);
+  });
+
+  it("scales the last rate, flagged as estimated, rather than exceed the venue's rate limit", async () => {
+    const venue = fakeVenue("swapkit", [priced("near", "1000000000000000")]);
+    const target = app([venue]);
+    await ask(target, "2");
+    const body = await (await ask(target, "4")).json();
+    expect(venue.quote).toHaveBeenCalledTimes(1);
+    expect(body).toMatchObject({ amountOut: "0.002", estimated: true, usd: { in: 10, out: 9.8 } });
+  });
+
+  it("asks the venue again once the interval has passed", async () => {
+    const venue = fakeVenue("swapkit", [priced("near", "1000")]);
+    const target = app([venue]);
+    await ask(target, "2");
+    currentTime = new Date(NOW.getTime() + 8_000);
+    await ask(target, "4");
+    expect(venue.quote).toHaveBeenCalledTimes(2);
+  });
+
+  it("answers 429 with a wait when it has no rate to scale", async () => {
+    const venue = fakeVenue("swapkit", [priced("near", "1000")]);
+    const target = app([venue]);
+    await ask(target);
+    const other = await target.request("/v1/price?from=base:eth&to=base:usdc&amount=1");
+    expect(other.status).toBe(429);
+    expect(await other.json()).toMatchObject({ error: "price_busy" });
+  });
+
+  it("refuses an unknown asset or a bad amount", async () => {
+    const target = app([fakeVenue("swapkit", [])]);
+    expect((await target.request("/v1/price?from=nope&to=base:eth&amount=1")).status).toBe(400);
+    expect((await ask(target, "abc")).status).toBe(400);
+    expect((await ask(target, "0")).status).toBe(400);
+  });
+
+  it("answers 422 when no venue has a route", async () => {
+    expect((await ask(app([fakeVenue("swapkit", [])]))).status).toBe(422);
+  });
+
+  it("answers 502 when every venue fails", async () => {
+    const venue = fakeVenue("swapkit");
+    venue.quote.mockRejectedValue(new Error("down"));
+    expect((await ask(app([venue]))).status).toBe(502);
+  });
+});
+
+describe("dollar values on quotes", () => {
+  it("prices a Uniswap route from the SwapKit route beside it", async () => {
+    const swapkit = route("swapkit", "1000", { usd: { in: 2, out: 1.9 } });
+    const response = await postQuote(app([fakeVenue("uniswap", [route("uniswap", "2000")]), fakeVenue("swapkit", [swapkit])]));
+    const { routes } = (await response.json()) as any;
+    const uniswap = routes.find((entry: { venue: string }) => entry.venue === "uniswap");
+    expect(uniswap.usd.in).toBe(2);
+    expect(uniswap.usd.out).toBeCloseTo(3.8);
+  });
+});
+

@@ -15,6 +15,16 @@ const EXPIRY_GRACE_SECONDS = 120;
 const BLOCK_SECONDS = 2;
 const COMPLETED_RETENTION_SECONDS = 7 * 24 * 3600;
 const QUERY_LIMIT = 50;
+/** People read these records as their swap history, so they carry words rather than internal codes. */
+const STATUS_LABELS: Record<string, string> = {
+  quoted: "Quoted",
+  executing: "In progress",
+  completed: "Completed",
+  refunded: "Refunded",
+  failed: "Failed",
+  expired: "Expired",
+};
+const statusLabel = (status: string) => STATUS_LABELS[status] ?? status;
 
 export interface QuoteAttributes {
   project: string;
@@ -26,6 +36,7 @@ export interface QuoteAttributes {
   toAsset: string;
   payer: string;
   status: string;
+  summary?: string;
   createdAt: bigint;
   validUntil: bigint;
   payload: Uint8Array;
@@ -33,6 +44,7 @@ export interface QuoteAttributes {
 
 export interface QuotePatch {
   status: string;
+  summary?: string;
   amountReceived?: string;
   txHashes?: Uint8Array;
 }
@@ -74,6 +86,7 @@ export function createArkivPublisher(options: ArkivPublisherOptions): QuotePubli
         clients.create(
           {
             ...attributes,
+            status: statusLabel(quote.status),
             project: PROJECT,
             type: QUOTE_TYPE,
             createdAt: BigInt(quote.createdAt),
@@ -87,7 +100,8 @@ export function createArkivPublisher(options: ArkivPublisherOptions): QuotePubli
 
     async updateQuote(entityKey: string, outcome: QuoteOutcome) {
       const patch: QuotePatch = {
-        status: outcome.status,
+        status: statusLabel(outcome.status),
+        ...(outcome.summary ? { summary: outcome.summary } : {}),
         ...(outcome.amountReceived ? { amountReceived: outcome.amountReceived } : {}),
         ...(outcome.txHashes?.length ? { txHashes: new TextEncoder().encode(outcome.txHashes.join(",")) } : {}),
       };
@@ -172,10 +186,12 @@ export function connectArkiv(connection: ArkivConnection): { clients: ArkivClien
         fromAsset: true,
         toAsset: true,
         status: true,
+        summary: true,
         createdAt: true,
         validUntil: true,
         payload: true,
         amountReceived: true,
+        txHashes: true,
       })
       .from(QuoteSchema);
   }
@@ -188,6 +204,8 @@ function toPlainRow(row: Record<string, unknown>): Record<string, unknown> {
     const value = field && typeof field === "object" && "value" in field ? (field as { value: unknown }).value : field;
     if (name === "payload" && typeof value === "string") {
       plain.payload = JSON.parse(Buffer.from(value.slice(2), "hex").toString("utf8"));
+    } else if (name === "txHashes" && typeof value === "string") {
+      plain.txHashes = Buffer.from(value.slice(2), "hex").toString("utf8").split(",");
     } else {
       plain[name === "$key" ? "entityKey" : name] = typeof value === "bigint" ? Number(value) : value;
     }

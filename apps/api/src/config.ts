@@ -14,6 +14,7 @@ export interface Config {
   /** Unset means POST /v1/swap is free. */
   swapPriceUsd?: string;
   baseRpcUrl: string;
+  ethereumRpcUrl?: string;
   port: number;
   databasePath: string;
   webRoot: string;
@@ -56,6 +57,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     facilitatorUrl: env.X402_FACILITATOR_URL || "https://x402.org/facilitator",
     ...(env.SWAP_PRICE_USDC ? { swapPriceUsd: env.SWAP_PRICE_USDC } : {}),
     baseRpcUrl: env.BASE_RPC_URL || "https://mainnet.base.org",
+    ...(env.ETHEREUM_RPC_URL ? { ethereumRpcUrl: env.ETHEREUM_RPC_URL } : {}),
     port: Number(env.PORT || 8787),
     databasePath: env.DATABASE_PATH || "crossfare.db",
     webRoot: env.WEB_ROOT || "../web/dist",
