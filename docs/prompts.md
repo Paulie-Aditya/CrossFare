@@ -92,3 +92,7 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 
 > full ec2 steps revised; and also why are the tokens not showing up?
 
+## 21. Backend deployed
+
+> it's up
+

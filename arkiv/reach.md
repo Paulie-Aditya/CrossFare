@@ -13,6 +13,6 @@ We have no outside users yet, so this is intent rather than evidence of adoption
 
 ## Can they try it today, and will you keep building it after Mumbai?
 
-**Try it:** the live URL goes here once deployed. The public quote record reads directly from Arkiv, and the swap form needs no account. To read the record without the UI, use the query in the [README](../README.md).
+**Try it:** [crossfare.vercel.app](https://crossfare.vercel.app). The public quote record reads directly from Arkiv, and the swap form needs no account. To read the record without the UI, use the query in the [README](../README.md).
 
 **After Mumbai:** yes. CoinDrop's integration is the next step, including its own swap fees. Before any public launch, we'll talk to SwapKit about the terms for reselling access.

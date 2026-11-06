@@ -6,7 +6,9 @@ For example: you tell your agent to swap 5 USDC on Ethereum to ETH on Base. It a
 
 Built at ETHGlobal Mumbai, Classic track.
 
-> **Status:** the full loop has run live once on localhost: a real swap of 2 USDC on Ethereum delivered 1.997376 USDC on Base. See the [full test report](docs/live-test-2026-11-06.md). It isn't deployed yet, so there's no public URL.
+> **Live:** [crossfare.vercel.app](https://crossfare.vercel.app), with the API on EC2.
+>
+> **Status:** two real swaps have completed, both run from a local server: 2 USDC on Ethereum delivered 1.997376 USDC on Base through the agent, and 5 USDC on Ethereum delivered 0.0022257 ETH on Base through the UI with no wallet connected. See the [full test report](docs/live-test-2026-11-06.md). The deployed site has paid for testnet quotes and opened a deposit address, but no real swap has run on it yet.
 
 ## Live evidence
 
