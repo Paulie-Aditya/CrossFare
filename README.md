@@ -132,7 +132,7 @@ pnpm --filter @crossfare/web dev
 
 ## Deploy
 
-One EC2 instance serves the UI and API from a single URL. See [`docs/deploy-ec2.md`](docs/deploy-ec2.md).
+The API runs on EC2 ([steps](docs/deploy-ec2.md)), and the UI can run from there too or on [Vercel](docs/deploy-vercel.md).
 
 ## Built with
 

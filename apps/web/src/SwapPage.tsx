@@ -303,7 +303,7 @@ function OrderPanel(props: {
       <p className="order-note">
         Send from any wallet or exchange, on {chainNameOf(deposit.asset)} only.{" "}
         {flexible
-          ? `Anything from ${deposit.minAmount} to ${deposit.amount} ${sold} swaps under this quote, and more than that swaps too, all of it. Less than ${deposit.minAmount} ${sold} isn't swapped, and returns to ${shorten(refundAddress)} after the provider's deadline, which can take days.`
+          ? `If you send more, all of it swaps. Less than ${deposit.minAmount} ${sold} isn't swapped, and returns to ${shorten(refundAddress)} after the provider's deadline, which can take days.`
           : deposit.minAmount
             ? `Send the full amount. Less isn't swapped and any extra isn't either: both return to ${shorten(refundAddress)}, which can take days.`
             : `If an exchange takes a withdrawal fee, add it so the full amount arrives, because you receive less if less arrives. If the swap can't go ahead, your funds return to ${shorten(refundAddress)}.`}

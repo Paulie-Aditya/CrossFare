@@ -76,3 +76,7 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 
 > what happens if the amount sent is less than what I had quoted, let's say I had quoted 5 usdc, but I sent 4 actually, will the swap go through? what I think the ideal flow should be: if amount sent is not exact, if it is less than amount , but above minimum, then make the swap go through and at the confirmation page everything would show. if it is above the amount, only swap the amount quoted, and send back the rest to the refund address if it differs by over 5$ (covers gas) else swap the entire amount and show in confirmation page
 
+## 17. Over-sends, a real 30-minute limit and Vercel
+
+> ok fine it's anyway a p2, Over by more than $5 | Swap 5, refund the rest | Swaps it all | Can't be done without holding funds ; actually swap it all; remove this: "Anything from 4.85 to 5 USDC". can we actually make the quote expire within 30 mins? I don't want the quote to stay for 72 hours; yes Flexible (current, my recommendation) | Swaps if above the minimum | Swaps everything and shows it | Someone sending far too much gets it all converted this exactly still deciding the domain name, but I can deploy the frontend to vercel, it looks good.
+

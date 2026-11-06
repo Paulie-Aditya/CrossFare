@@ -6,7 +6,7 @@ Open-source cross-chain swap API that AI agents pay for per call: x402 payment o
 - **PRD stays private for now:** do not copy it or its contents into this public repo yet. At submission, commit a copy without the SwapKit terms analysis and CoinDrop plans, and state what was removed, to meet ETHGlobal's rule on planning artifacts.
 - **Team:** solo. AI writes the code, directed by the developer, who steps in manually to fix issues. The developer records the demo video.
 - **Pushing:** push to `origin` after each commit. The public history is evidence of steady progress.
-- **Deployment:** the developer deploys to AWS EC2.
+- **Deployment:** the developer deploys the API to AWS EC2 and the web app to Vercel.
 - **Scope gate:** P0 requirements only until the reference agent completes the whole loop once. P1 work starts after that. P2 waits until after the hackathon.
 
 ## Working rules
