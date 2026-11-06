@@ -15,8 +15,8 @@ import {
 const BASE_URL = "https://trade-api.gateway.uniswap.org/v1";
 const NATIVE_TOKEN = "0x0000000000000000000000000000000000000000";
 const VENUE = "uniswap";
-/** The API requires a swapper even for a price, and the answer doesn't depend on who it is. */
-const PRICE_CHECK_SWAPPER = "0x0000000000000000000000000000000000000001";
+/** The API requires a swapper even for a price. It finds no route for a reserved address such as 0x01. */
+const PRICE_CHECK_SWAPPER = "0x000000000000000000000000000000000000dEaD";
 /** The API sets no quote expiry. Its guide says to refresh quotes older than 30 seconds. */
 const QUOTE_TTL_MS = 60_000;
 

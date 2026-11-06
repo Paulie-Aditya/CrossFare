@@ -306,3 +306,15 @@ describe("uniswap track", () => {
     ).toEqual({ status: "completed", amountReceived: "2" });
   });
 });
+
+describe("a price check", () => {
+  it("uses a placeholder Uniswap can route for, because reserved addresses like 0x01 get no route", async () => {
+    const fetch = fakeFetch({ "/quote": () => json(quoteResponse) });
+    await venue(fetch).quote({ ...request, indicative: true });
+    const body = JSON.parse(fetch.mock.calls[0]![1]?.body as string);
+    // The EVM reserves the lowest addresses for precompiles.
+    expect(BigInt(body.swapper)).toBeGreaterThan(0x10000n);
+    expect(body.swapper).not.toBe(AGENT);
+    expect(body).not.toHaveProperty("recipient");
+  });
+});
