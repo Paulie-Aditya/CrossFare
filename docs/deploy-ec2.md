@@ -8,7 +8,10 @@ One small instance runs the API, with Caddy in front for HTTPS. It can serve the
 cat /etc/os-release                  # these commands assume Ubuntu or Debian
 which node && node --version         # the service runs /usr/bin/node, which must be 22.18 or newer
 sudo ss -ltnp | grep -E ':(80|443) ' # Caddy needs these ports free
+free -h                              # the install peaks near 400 MB and the API uses about 300 MB
 ```
+
+**Don't attach an Elastic IP to a shared instance without checking.** It changes the public address, which breaks any DNS already pointing at the old one.
 
 Also check that nothing already uses port 8787, and don't upgrade a system Node.js that another app relies on. If nginx already holds ports 80 and 443, skip Caddy and follow "If nginx is already running" in step 6.
 
@@ -38,8 +41,10 @@ sudo useradd --system --home /opt/crossfare --shell /usr/sbin/nologin crossfare
 sudo git clone <this repo's URL> /opt/crossfare
 sudo chown -R "$USER" /opt/crossfare
 cd /opt/crossfare
-pnpm install --frozen-lockfile
-pnpm --filter @crossfare/web build   # skip this if the UI is on Vercel
+# With the UI on Vercel, this installs only the API and uses far less memory:
+pnpm --filter "@crossfare/api..." install --frozen-lockfile
+# Otherwise, install everything and build the UI:
+# pnpm install --frozen-lockfile && pnpm --filter @crossfare/web build
 sudo chown -R crossfare:crossfare /opt/crossfare
 ```
 
@@ -114,7 +119,7 @@ Check `https://<your name>/healthz`. If the UI is on Vercel, put the same name i
 ```sh
 cd /opt/crossfare
 sudo -u crossfare git pull
-sudo -u crossfare pnpm install --frozen-lockfile
-sudo -u crossfare pnpm --filter @crossfare/web build   # skip this if the UI is on Vercel
+sudo -u crossfare pnpm --filter "@crossfare/api..." install --frozen-lockfile
+# With the UI on this instance, install everything and run the web build instead.
 sudo systemctl restart crossfare
 ```

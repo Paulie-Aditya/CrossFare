@@ -88,3 +88,7 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 
 > 13.232.174.171 this is the public ip for ec2, use the sslip.io for now, how will it work without Don't copy AGENT_EVM_PRIVATE_KEY. ? i think it's safe to keep it in the env on ec2
 
+## 20. Full EC2 steps and missing tokens
+
+> full ec2 steps revised; and also why are the tokens not showing up?
+

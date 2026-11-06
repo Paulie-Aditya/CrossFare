@@ -16,6 +16,8 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+# The API uses about 300 MB. The cap stops it starving anything sharing the instance.
+MemoryMax=768M
 
 [Install]
 WantedBy=multi-user.target
