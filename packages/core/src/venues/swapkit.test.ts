@@ -619,3 +619,56 @@ describe("addresses SwapKit won't accept", () => {
   });
 });
 
+describe("a deposit that differs from the quote", () => {
+  const ADDRESS = "0xC9bebBA9f481b12cE6f3EA54c4B182c9636ec421";
+  const request = (flexibleDeposit: boolean): QuoteRequest => ({
+    from: { asset: "eth:usdc", amount: "5", address: ADDRESS },
+    to: { asset: "base:eth", address: ADDRESS },
+    mode: "exact_in",
+    slippageBps: 300,
+    ...(flexibleDeposit ? { flexibleDeposit } : {}),
+  });
+  const route = (provider: string) => ({ venue: "swapkit", provider, from: "eth:usdc", to: "base:eth", amountIn: "5000000", amountOut: "1", minAmountOut: "1", fees: {}, etaSeconds: 1, validUntil: "", depositable: true, venueData: { routeId: "r1" } });
+  const swap = () => fakeFetch({ "/v3/swap": () => json({ swapId: "s", txHint: "simpleTransfer", inboundAddress: "0xdeposit", sellAmount: "5", tx: { to: "0xusdc", data: "0xa9", value: "0" } }) });
+
+  it("gives NEAR's documented band: slippage below the quote on a flexible deposit", async () => {
+    const prepared = await venue(swap()).prepare(route("near"), request(true));
+    expect(prepared.deposit?.minAmount).toBe("4.85");
+  });
+
+  it("needs the full amount on an exact quote", async () => {
+    const prepared = await venue(swap()).prepare(route("near"), request(false));
+    expect(prepared.deposit?.minAmount).toBe("5");
+  });
+
+  it("states no minimum where a provider documents none", async () => {
+    const prepared = await venue(swap()).prepare(route("flashnet"), request(true));
+    expect(prepared.deposit?.minAmount).toBeUndefined();
+  });
+
+  const prepared = { transactions: [], deposit: { asset: "eth:usdc", address: "0xdeposit", amount: "5", channelId: "c1" } };
+  const real = `0x${"a".repeat(64)}`;
+  const track = (body: unknown) =>
+    venue(fakeFetch({ "/track": () => json(body) })).track({ route: route("near"), request: request(true), prepared, txHashes: [], venueSwapId: null });
+
+  it("reads what was actually deposited, once there is a deposit", async () => {
+    const tracked = await track({ status: "pending", fromAmount: "4.9", legs: [{ hash: real, status: "pending" }] });
+    expect(tracked.amountSent).toBe("4.9");
+  });
+
+  it("ignores the amount while nothing has arrived, because it may only echo the quote", async () => {
+    const tracked = await track({ status: "not_started", fromAmount: "5", legs: [{ hash: "0x", status: "not_started" }] });
+    expect(tracked.amountSent).toBeUndefined();
+  });
+
+  it("reports a refund's reason", async () => {
+    const tracked = await track({ status: "refunded", fromAmount: "4", meta: { refundReason: "INCOMPLETE_DEPOSIT" }, legs: [{ hash: real, status: "refunded" }] });
+    expect(tracked).toMatchObject({ status: "refunded", refundReason: "INCOMPLETE_DEPOSIT" });
+  });
+
+  it("reports a partial refund, which only trackingStatus can express", async () => {
+    const tracked = await track({ status: "completed", trackingStatus: "partially_refunded", toAmount: "1", legs: [{ hash: real, status: "completed" }] });
+    expect(tracked).toMatchObject({ status: "completed", partialRefund: true });
+  });
+});
+

@@ -1,5 +1,5 @@
 import { getAsset, toBaseUnits } from "../assets.ts";
-import type { Route } from "../routes.ts";
+import { fromBaseUnits, type Route } from "../routes.ts";
 import {
   VenueError,
   toHexValue,
@@ -27,6 +27,19 @@ const TRACK_STATUS: Record<string, SwapStatus> = {
   refunded: "refunded",
   failed: "failed",
 };
+
+const NEAR_PROVIDER = "near";
+
+/**
+ * NEAR Intents documents this: an exact quote needs its full amount, and a flexible one
+ * accepts down to the slippage below it. Other providers document no such floor.
+ */
+function nearMinimum(amount: string, decimals: number, request: QuoteRequest): string {
+  if (!request.flexibleDeposit) return amount;
+  const quoted = toBaseUnits(amount, decimals);
+  const floor = (quoted * BigInt(10_000 - request.slippageBps) + 9_999n) / 10_000n;
+  return fromBaseUnits(floor.toString(), decimals);
+}
 
 /** SwapKit lists prices per asset, in a case that differs from the identifiers we send. */
 function usdValues(route: ApiRoute, sold: string, soldAmount: string, bought: string): Route["usd"] {
@@ -86,6 +99,9 @@ interface ApiTrack {
   status: string;
   fromAddress?: string;
   toAmount?: string;
+  trackingStatus?: string;
+  fromAmount?: string;
+  meta?: { refundReason?: string };
   legs?: { hash?: string; status?: string }[];
 }
 
@@ -190,13 +206,15 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
       const source = getAsset(route.from);
 
       const depositDetails = (address: string): Deposit => {
+        const amount = swap.sellAmount ?? request.from.amount;
         const deadline = swap.meta?.depositChannelExpiration ?? Number(swap.expiration ?? NaN);
         const channelId = swap.meta?.providerDepositChannelId;
         return {
           asset: source.id,
           address,
           ...(swap.memo ? { memo: swap.memo } : {}),
-          amount: swap.sellAmount ?? request.from.amount,
+          amount,
+          ...(route.provider === NEAR_PROVIDER ? { minAmount: nearMinimum(amount, source.decimals, request) } : {}),
           ...(Number.isFinite(deadline) ? { expiresAt: new Date(deadline * 1000).toISOString() } : {}),
           ...(channelId ? { channelId } : {}),
         };
@@ -273,10 +291,15 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
       const depositLeg = tracked.legs?.[0];
       const depositLanded = depositLeg?.hash && isRealHash(depositLeg.hash) && depositLeg.status === "completed";
       const status = moving === "confirming" && depositLanded ? "exchanging" : moving;
+      // Before a deposit this field can only echo the quote.
+      const arrived = status !== "awaiting_deposit" && tracked.fromAmount;
       return {
         status,
         ...(status === "completed" && tracked.toAmount ? { amountReceived: tracked.toAmount } : {}),
         ...(legHashes.length ? { txHashes: legHashes } : {}),
+        ...(arrived ? { amountSent: tracked.fromAmount! } : {}),
+        ...(tracked.meta?.refundReason ? { refundReason: tracked.meta.refundReason } : {}),
+        ...(tracked.trackingStatus === "partially_refunded" ? { partialRefund: true } : {}),
       };
     },
   };

@@ -31,6 +31,10 @@ export interface Deposit {
   expiresAt?: string;
   /** The provider's deposit channel, used to track a deposit with no known hash. */
   channelId?: string;
+  /** The least a provider documents swapping. Below it the deposit isn't swapped. Unset where none is documented. */
+  minAmount?: string;
+  /** When a deposit that can't be swapped goes back, as the provider set it. */
+  refundBy?: string;
 }
 
 export interface PreparedSwap {
@@ -61,6 +65,11 @@ export interface TrackResult {
   /** Decimal amount actually delivered, once known. */
   amountReceived?: string;
   txHashes?: string[];
+  /** Decimal amount that was really deposited, which can differ from the quote. */
+  amountSent?: string;
+  refundReason?: string;
+  /** Part of the deposit was swapped and the rest returned. */
+  partialRefund?: boolean;
 }
 
 /** A venue answered with an error that isn't simply "no route for this pair". */
