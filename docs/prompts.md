@@ -31,3 +31,7 @@ The AI asked whether to keep Uniswap, whether the swap call should stay paid, an
 The AI listed seven open points: how the agent is driven, planning artifacts in the repo, commit wording, hosting, demo funds, plans after the event, and contacting SwapKit.
 
 > 1. terminal sounds good 2. sure 3. cool 4. will deploy on ec2 5. 10$ is fine 6. yep, this is being built because it serves a real purpose in CoinDrop, a lot of users do swaps but there there's a single liquidity provider, using Crossfare they would be able to freely swap while providing an additional revenue stream 7. let's focus on the hackathon first, we will then have a chat with swapkit for this, additionally while integrating with CoinDrop in the future I will be adding higher swap fees and all
+
+## 7. First live run
+
+> check the env I have added some keys and have added funds to 0xae2054732a1f85f6389f58044d42a79f0b292fad; yet to do this, you can do it >  Set up Hedera: this uses testnet funds only. once done let me know if anything else is pending, then run the test for the actual swap , if all works out I will deploy it on ec2 and we can do a live one, post which if issues arise, we will solve them
