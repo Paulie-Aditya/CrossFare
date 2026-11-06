@@ -345,6 +345,22 @@ describe("swapkit deposit routes from an EVM wallet", () => {
     expect(tracked.status).toBe("confirming");
   });
 
+  it("doesn't store SwapKit's all-zero placeholder hashes as transactions", async () => {
+    const zero = `0x${"0".repeat(64)}`;
+    const fetch = fakeFetch({ "/track": () => json({ status: "not_started", legs: [{ hash: "0x" }, { hash: zero }, { hash: zero }] }) });
+    const prepared = { transactions: [], deposit: { asset: "eth:usdc", address: "0xvault", amount: "2", channelId: "c" } };
+    const tracked = await venue(fetch).track({ route: evmRoute, request: evmRequest, prepared, txHashes: [], venueSwapId: null });
+    expect(tracked).toEqual({ status: "awaiting_deposit" });
+  });
+
+  it("keeps awaiting the deposit even if a placeholder hash was already stored", async () => {
+    const zero = `0x${"0".repeat(64)}`;
+    const fetch = fakeFetch({ "/track": () => json({ status: "not_started" }) });
+    const prepared = { transactions: [], deposit: { asset: "eth:usdc", address: "0xvault", amount: "2", channelId: "c" } };
+    const tracked = await venue(fetch).track({ route: evmRoute, request: evmRequest, prepared, txHashes: [zero, zero], venueSwapId: null });
+    expect(tracked.status).toBe("awaiting_deposit");
+  });
+
   it("ignores the empty hash SwapKit reports before a deposit lands", async () => {
     const fetch = fakeFetch({ "/track": () => json({ status: "not_started", legs: [{ hash: "0x" }] }) });
     const prepared = { transactions: [], deposit: { asset: "eth:usdc", address: "0xvault", amount: "20" } };

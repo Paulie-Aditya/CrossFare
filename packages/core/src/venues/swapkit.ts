@@ -28,6 +28,9 @@ const TRACK_STATUS: Record<string, SwapStatus> = {
   failed: "failed",
 };
 
+/** SwapKit fills legs with "0x" or an all-zero hash until a transaction exists. */
+const isRealHash = (hash: string) => !/^0x0*$/.test(hash);
+
 /** Non-terminal unknowns stay `confirming` so polling continues. */
 export function mapTrackStatus(status: string): SwapStatus {
   return TRACK_STATUS[status] ?? "confirming";
@@ -203,7 +206,7 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
 
     async track({ route, request, prepared, txHashes }: TrackInput): Promise<TrackResult> {
       const { routeId } = route.venueData as { routeId: string };
-      const hash = txHashes.at(-1);
+      const hash = txHashes.filter(isRealHash).at(-1);
       const chainId = prepared.transactions.at(-1)?.chainId;
 
       let body: Record<string, string>;
@@ -235,7 +238,7 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
       const mapped = mapTrackStatus(tracked.status);
       // SwapKit lags a broadcast, but a sent transaction is no longer awaiting a deposit.
       const status = mapped === "awaiting_deposit" && hash ? "confirming" : mapped;
-      const legHashes = (tracked.legs ?? []).flatMap((leg) => (leg.hash && leg.hash !== "0x" ? [leg.hash] : []));
+      const legHashes = (tracked.legs ?? []).flatMap((leg) => (leg.hash && isRealHash(leg.hash) ? [leg.hash] : []));
       return {
         status,
         ...(status === "completed" && tracked.toAmount ? { amountReceived: tracked.toAmount } : {}),
