@@ -80,3 +80,7 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 
 > ok fine it's anyway a p2, Over by more than $5 | Swap 5, refund the rest | Swaps it all | Can't be done without holding funds ; actually swap it all; remove this: "Anything from 4.85 to 5 USDC". can we actually make the quote expire within 30 mins? I don't want the quote to stay for 72 hours; yes Flexible (current, my recommendation) | Swaps if above the minimum | Swaps everything and shows it | Someone sending far too much gets it all converted this exactly still deciding the domain name, but I can deploy the frontend to vercel, it looks good.
 
+## 18. Deploying the backend
+
+> https://crossfare.vercel.app frontend deployed here, i will deploy the backend to ec2 in a bit, tell me the steps to it, I already have the ec2 instance. can we make the api url a subdomain of crossfare.vercel.app ? or does it have to be owned by me like coindrop.cc and hence api.coindrop.cc else for now I can give you the public ip for the ec2 and make it work
+

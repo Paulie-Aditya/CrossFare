@@ -29,5 +29,5 @@ Open the Vercel URL, then:
 
 ## Worth knowing
 
-- **Rate limits:** the demo's per-visitor limit reads `x-forwarded-for`. This hasn't been checked behind Vercel, so it may see Vercel's address rather than the visitor's. The daily limit applies either way.
+- **Rate limits:** the demo's per-visitor limit reads `x-forwarded-for`. This hasn't been checked behind Vercel, and it probably sees Vercel's address rather than the visitor's, so the EC2 guide raises it. The daily limit applies either way.
 - **The EC2 instance** still serves the web app too if you build it there, which is harmless. You can skip that build step.
