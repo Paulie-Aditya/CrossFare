@@ -3,8 +3,8 @@
   "framework": "vite",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/v1/:path*", "destination": "https://crossfare.example.com/v1/:path*" },
-    { "source": "/demo/:path*", "destination": "https://crossfare.example.com/demo/:path*" },
-    { "source": "/.well-known/x402", "destination": "https://crossfare.example.com/.well-known/x402" }
+    { "source": "/v1/:path*", "destination": "https://13-232-174-171.sslip.io/v1/:path*" },
+    { "source": "/demo/:path*", "destination": "https://13-232-174-171.sslip.io/demo/:path*" },
+    { "source": "/.well-known/x402", "destination": "https://13-232-174-171.sslip.io/.well-known/x402" }
   ]
 }

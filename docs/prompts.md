@@ -84,3 +84,7 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 
 > https://crossfare.vercel.app frontend deployed here, i will deploy the backend to ec2 in a bit, tell me the steps to it, I already have the ec2 instance. can we make the api url a subdomain of crossfare.vercel.app ? or does it have to be owned by me like coindrop.cc and hence api.coindrop.cc else for now I can give you the public ip for the ec2 and make it work
 
+## 19. Pointing the UI at EC2
+
+> 13.232.174.171 this is the public ip for ec2, use the sslip.io for now, how will it work without Don't copy AGENT_EVM_PRIVATE_KEY. ? i think it's safe to keep it in the env on ec2
+

@@ -13,7 +13,7 @@ The page loads straight away, but it can't show tokens or quotes until step 2 is
 
 ## 2. Point it at your API
 
-In `apps/web/vercel.json`, replace each `crossfare.example.com` with your API's domain, then commit and push. Vercel redeploys on its own.
+In `apps/web/vercel.json`, set each destination to your API's domain, then commit and push. Vercel redeploys on its own. It currently points at a temporary sslip.io name for the EC2 instance.
 
 The API must answer over HTTPS at that domain, which the Caddy step in the EC2 guide sets up.
 
