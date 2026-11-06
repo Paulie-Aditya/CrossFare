@@ -88,8 +88,8 @@ Live at crossfare.vercel.app, with the UI on Vercel and the API on EC2. Two real
 * [x] A script associates USDC on both Hedera accounts
 * [x] A real 5 USDC swap with no wallet connected: Ethereum USDC to ETH on Base, delivered
 * [x] Live price, dollar values on quotes, stage tracker, result screen, wallet dialog and readable history (FR-44 to FR-48). The stage tracker has run on a mock only, not yet during a real swap
-* [ ] Every SwapKit token in a searchable picker with logos, and deposits that differ from the quote reported rather than hidden (FR-49, FR-50). Real deposits of a different amount are untested
-* [ ] Deployed: the UI on Vercel, which forwards API requests to EC2 behind nginx, with HTTPS on a temporary sslip.io name
+* [x] Every SwapKit token in a searchable picker with logos, and deposits that differ from the quote reported rather than hidden (FR-49, FR-50). Real deposits of a different amount are untested
+* [x] Deployed: the UI on Vercel, which forwards API requests to EC2 behind nginx, with HTTPS on a temporary sslip.io name
 * [ ] A real swap on the deployed site, which is also the first real run of the stage tracker and on-chain deposit check
 * [ ] The MCP server (FR-2, P1), which isn't built, so packages/mcp doesn't exist
 
