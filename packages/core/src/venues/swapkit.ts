@@ -86,7 +86,7 @@ interface ApiTrack {
   status: string;
   fromAddress?: string;
   toAmount?: string;
-  legs?: { hash?: string }[];
+  legs?: { hash?: string; status?: string }[];
 }
 
 export interface SwapKitOptions {
@@ -127,9 +127,13 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
         sellAsset: from.swapkit,
         buyAsset: to.swapkit,
         ...(exactIn ? { sellAmount: request.from.amount } : { buyAmount: request.from.amount }),
-        sourceAddress: request.from.address,
-        destinationAddress: request.to.address,
-        ...(request.refundAddress ? { refundAddress: request.refundAddress } : {}),
+        ...(request.indicative
+          ? {}
+          : {
+              sourceAddress: request.from.address,
+              destinationAddress: request.to.address,
+              ...(request.refundAddress ? { refundAddress: request.refundAddress } : {}),
+            }),
         slippage: request.slippageBps / 100,
         quoteType: !exactIn ? "EXACT_OUTPUT" : request.flexibleDeposit ? "FLEX_INPUT" : "EXACT_INPUT",
       });
@@ -167,9 +171,13 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
       const { routeId } = route.venueData as { routeId: string };
       const response = await call("/v3/swap", {
         routeId,
-        sourceAddress: request.from.address,
-        destinationAddress: request.to.address,
-        ...(request.refundAddress ? { refundAddress: request.refundAddress } : {}),
+        ...(request.indicative
+          ? {}
+          : {
+              sourceAddress: request.from.address,
+              destinationAddress: request.to.address,
+              ...(request.refundAddress ? { refundAddress: request.refundAddress } : {}),
+            }),
         // An exchange's funds aren't at this address, which only says where refunds go.
         ...(request.flexibleDeposit ? { disableBalanceCheck: true } : {}),
       });
@@ -253,9 +261,12 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
       }
 
       const mapped = mapTrackStatus(tracked.status);
-      // SwapKit lags a broadcast, but a sent transaction is no longer awaiting a deposit.
-      const status = mapped === "awaiting_deposit" && hash ? "confirming" : mapped;
       const legHashes = (tracked.legs ?? []).flatMap((leg) => (leg.hash && isRealHash(leg.hash) ? [leg.hash] : []));
+      // SwapKit's overall status lags its legs and a broadcast, so a real hash means the deposit has left awaiting.
+      const moving = mapped === "awaiting_deposit" && (hash || legHashes.length) ? "confirming" : mapped;
+      const depositLeg = tracked.legs?.[0];
+      const depositLanded = depositLeg?.hash && isRealHash(depositLeg.hash) && depositLeg.status === "completed";
+      const status = moving === "confirming" && depositLanded ? "exchanging" : moving;
       return {
         status,
         ...(status === "completed" && tracked.toAmount ? { amountReceived: tracked.toAmount } : {}),

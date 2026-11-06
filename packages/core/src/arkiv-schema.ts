@@ -14,6 +14,8 @@ export const QuoteSchema = defineSchema("crossfare-quote", {
   createdAt: u64().indexed(),
   validUntil: u64().indexed(),
   payload: bytes(),
+  /** One readable line, such as "Swapped 5 USDC on Ethereum for 0.0022 ETH on Base". */
+  summary: str().optional(),
   amountReceived: str().optional(),
   /** Comma-separated UTF-8. Bytes, because a str holds 128 bytes and two hashes exceed that. */
   txHashes: bytes().optional(),

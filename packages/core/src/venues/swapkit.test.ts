@@ -546,3 +546,44 @@ describe("swapkit screening", () => {
     await expect(screen([{ address: AGENT, asset: "base:eth" }])).rejects.toBeInstanceOf(VenueError);
   });
 });
+
+describe("track stages", () => {
+  const real = `0x${"a".repeat(64)}`;
+  const prepared = { transactions: [], deposit: { asset: "eth:usdc", address: "0xdeposit", amount: "5", channelId: "c1" } };
+  const request: QuoteRequest = {
+    from: { asset: "eth:usdc", amount: "5", address: "0xC9bebBA9f481b12cE6f3EA54c4B182c9636ec421" },
+    to: { asset: "base:eth", address: "0xC9bebBA9f481b12cE6f3EA54c4B182c9636ec421" },
+    mode: "exact_in",
+    slippageBps: 300,
+    refundAddress: "0xC9bebBA9f481b12cE6f3EA54c4B182c9636ec421",
+  };
+  const route = { venue: "swapkit", from: "eth:usdc", to: "base:eth", amountIn: "5000000", amountOut: "1", minAmountOut: "1", fees: {}, etaSeconds: 1, validUntil: "", venueData: { routeId: "r1" } };
+  const track = (body: unknown) =>
+    venue(fakeFetch({ "/track": () => json(body) })).track({ route, request, prepared, txHashes: [], venueSwapId: null });
+
+  it("stops awaiting once a leg shows a real deposit, even if the swap still reads not_started", async () => {
+    const tracked = await track({ status: "not_started", legs: [{ hash: real, status: "pending" }] });
+    expect(tracked.status).toBe("confirming");
+    expect(tracked.txHashes).toEqual([real]);
+  });
+
+  it("reports exchanging once the deposit leg has completed", async () => {
+    const tracked = await track({ status: "pending", legs: [{ hash: real, status: "completed" }, { hash: "0x", status: "not_started" }] });
+    expect(tracked.status).toBe("exchanging");
+  });
+
+  it("keeps awaiting while the legs only hold placeholders", async () => {
+    const tracked = await track({ status: "not_started", legs: [{ hash: "0x", status: "not_started" }] });
+    expect(tracked.status).toBe("awaiting_deposit");
+  });
+
+  it("asks for a price without any addresses when the quote is indicative", async () => {
+    const fetch = fakeFetch({ "/v3/quote": () => json({ routes: [] }) });
+    await venue(fetch).quote({ ...request, indicative: true });
+    const sent = JSON.parse(String(fetch.mock.calls[0]![1]?.body));
+    expect(sent).not.toHaveProperty("sourceAddress");
+    expect(sent).not.toHaveProperty("destinationAddress");
+    expect(sent).not.toHaveProperty("refundAddress");
+  });
+});
+

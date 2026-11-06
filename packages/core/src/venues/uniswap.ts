@@ -15,6 +15,8 @@ import {
 const BASE_URL = "https://trade-api.gateway.uniswap.org/v1";
 const NATIVE_TOKEN = "0x0000000000000000000000000000000000000000";
 const VENUE = "uniswap";
+/** The API requires a swapper even for a price, and the answer doesn't depend on who it is. */
+const PRICE_CHECK_SWAPPER = "0x0000000000000000000000000000000000000001";
 /** The API sets no quote expiry. Its guide says to refresh quotes older than 30 seconds. */
 const QUOTE_TTL_MS = 60_000;
 
@@ -160,8 +162,8 @@ export function createUniswapVenue(options: UniswapOptions): Venue {
         tokenOutChainId: tokens.out.chainId,
         tokenIn: tokens.in.address,
         tokenOut: tokens.out.address,
-        swapper: request.from.address,
-        recipient: request.to.address,
+        swapper: request.indicative ? PRICE_CHECK_SWAPPER : request.from.address,
+        ...(request.indicative ? {} : { recipient: request.to.address }),
         slippageTolerance: request.slippageBps / 100,
         protocols: ["V2", "V3", "V4"],
       });

@@ -9,6 +9,8 @@ export interface QuoteRequest {
   refundAddress?: string;
   /** The deposit may come from any sender, such as an exchange, and may differ slightly. */
   flexibleDeposit?: boolean;
+  /** A price check with no addresses behind it. It can't be executed. */
+  indicative?: boolean;
 }
 
 export interface UnsignedTransaction {
