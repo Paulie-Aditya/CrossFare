@@ -17,3 +17,16 @@ Written as issues come up. Writes have not yet run against the live testnet, so 
 ## The two chain names
 
 The prize page gives a chain ID and RPC, while the SDK exports the same network as `rabdi`. We had to search the package's source to confirm they were the same network. A line on the prize page naming the export would have saved that step.
+
+## Lifetimes must be a whole number of blocks
+
+**What we expected.** `ExpirationTime.fromSeconds(n)` to accept any number of seconds, or to round to the nearest block. A quote's lifetime is computed from the clock, so it can be any number.
+
+**What happened.** About half of our quote writes failed with `InvalidExpiryError: a lifetime must be a multiple of the 2s block time, got 419`. Our first live run passed by luck, and the second failed. Tests with a fake client didn't catch it, because the check is inside the SDK.
+
+**How to reproduce.** Call `ExpirationTime.fromSeconds(419)` with `@arkiv-network/sdk` 1.0.1.
+
+**What we did.** We round the lifetime up to the next even number.
+
+**What would help.** Round inside `fromSeconds`, or offer an option that does. The error message itself is excellent: it names the cause and suggests values.
+

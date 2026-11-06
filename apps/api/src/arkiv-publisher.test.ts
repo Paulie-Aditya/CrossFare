@@ -113,4 +113,12 @@ describe("arkiv publisher", () => {
     expect(await publisher(c).quotesByPayer("0.0.51234")).toEqual([{ quoteId: "q_1" }]);
     expect(c.queryByPayer).toHaveBeenCalledWith("0.0.51234", WRITER);
   });
+
+  it.each([0, 1])("always asks for a lifetime Arkiv accepts, a multiple of its 2-second block time (offset %i)", async (offset) => {
+    const fake = clients();
+    await publisher(fake).publishQuote({ ...quote, validUntil: quote.validUntil + offset });
+    const seconds = vi.mocked(fake.create).mock.calls[0]![1];
+    expect(seconds % 2).toBe(0);
+    expect(seconds).toBeGreaterThanOrEqual(60 + offset + 120);
+  });
 });

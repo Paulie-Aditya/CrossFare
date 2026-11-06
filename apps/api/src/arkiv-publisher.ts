@@ -11,6 +11,8 @@ const PROJECT = "crossfare";
 const QUOTE_TYPE = "quote";
 /** Quotes stay readable briefly after they lapse, so late checks still work. */
 const EXPIRY_GRACE_SECONDS = 120;
+/** Arkiv rejects a lifetime that isn't a whole number of blocks. */
+const BLOCK_SECONDS = 2;
 const COMPLETED_RETENTION_SECONDS = 7 * 24 * 3600;
 const QUERY_LIMIT = 50;
 
@@ -66,8 +68,8 @@ export function createArkivPublisher(options: ArkivPublisherOptions): QuotePubli
   return {
     publishQuote(quote: PublicQuote) {
       const { payload, ...attributes } = quote;
-      const expiresIn =
-        quote.validUntil - Math.floor(now().getTime() / 1000) + EXPIRY_GRACE_SECONDS;
+      const lifetime = quote.validUntil - Math.floor(now().getTime() / 1000) + EXPIRY_GRACE_SECONDS;
+      const expiresIn = Math.ceil(lifetime / BLOCK_SECONDS) * BLOCK_SECONDS;
       return enqueue(() =>
         clients.create(
           {
