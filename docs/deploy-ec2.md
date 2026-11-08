@@ -123,3 +123,17 @@ sudo -u crossfare pnpm --filter "@crossfare/api..." install --frozen-lockfile
 # With the UI on this instance, install everything and run the web build instead.
 sudo systemctl restart crossfare
 ```
+
+## VIP keys
+
+Keys live in the service's database, so issue them with the server's own settings. From the instance:
+
+```sh
+cd /opt/crossfare/apps/api
+sudo -u crossfare node --env-file=/etc/crossfare/crossfare.env src/vip-cli.ts create my-service --rate 120
+sudo -u crossfare node --env-file=/etc/crossfare/crossfare.env src/vip-cli.ts list
+sudo -u crossfare node --env-file=/etc/crossfare/crossfare.env src/vip-cli.ts usage --month 2026-11
+sudo -u crossfare node --env-file=/etc/crossfare/crossfare.env src/vip-cli.ts revoke vk_…
+```
+
+`create` prints the key once. Changes apply on the next request, with no restart. A caller on this same instance can call `http://127.0.0.1:8787` directly. See [VIP keys](vip.md) for how callers sign requests.

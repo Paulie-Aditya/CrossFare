@@ -119,6 +119,8 @@ sequenceDiagram
 
 Prices are placeholders, settled in testnet USDC. Set `SWAP_PRICE_USDC` to charge for `POST /v1/swap` as well. Quote IDs are public on Arkiv, so the swap call requires a private token that only the quote's caller receives. Payments and Arkiv use testnets. Swaps run on mainnet because Uniswap and SwapKit need real liquidity. Sender and receiving addresses are checked for their chain, screened through SwapKit when a swap is requested, and never published on Arkiv. Without the sending wallet connected, quotes use SwapKit's flexible deposit mode and skip its balance check, so the deposit can come from any wallet or exchange. The address given is then only where refunds go.
 
+**VIP keys.** A service that makes many calls can skip x402 with a VIP key: it signs each request with an HMAC instead of paying, and its calls are rate-limited, counted for billing and published on Arkiv under the key's label. See [`docs/vip.md`](docs/vip.md).
+
 ## Repository
 
 | Path | Contents |
@@ -130,7 +132,7 @@ Prices are placeholders, settled in testnet USDC. Set `SWAP_PRICE_USDC` to charg
 | `scripts` | Setup and read-only checks |
 | `deploy` | Service, nginx and Caddy configuration for EC2 |
 | `arkiv/` | Arkiv prize documents |
-| `docs/` | [Requirements](docs/prd.md), [developer prompts](docs/prompts.md), [test report](docs/live-test-2026-11-06.md) and deployment guides |
+| `docs/` | [Requirements](docs/prd.md), [developer prompts](docs/prompts.md), [test report](docs/live-test-2026-11-06.md), [VIP keys](docs/vip.md) and deployment guides |
 
 **Where the Uniswap API is called:** [`packages/core/src/venues/uniswap.ts`](packages/core/src/venues/uniswap.ts): `/quote` at [line 158](packages/core/src/venues/uniswap.ts#L158), `/check_approval` at [line 204](packages/core/src/venues/uniswap.ts#L204) and `/swap` at [line 214](packages/core/src/venues/uniswap.ts#L214).
 

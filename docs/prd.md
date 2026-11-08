@@ -474,10 +474,10 @@ Two provisions follow the hackathon build: VIP callers skip the per-call x402 pa
 
 ### VIP mode
 
-VIP callers authenticate with a key instead of paying per call; x402 stays the default for everyone else.
+VIP callers authenticate with a key instead of paying per call; x402 stays the default for everyone else. FR-29 to FR-32 were built on 8 November; [docs/vip.md](vip.md) is the integrator guide. FR-33 isn't built.
 
 - **Order of checks.** The middleware looks for a VIP credential first. A valid one skips x402; anything else gets the normal `402`.
-- **Credential.** `Authorization: Bearer cf_live_…` plus an `X-Crossfare-Sign` header: HMAC-SHA256 over timestamp and body, accepted within 60 seconds. A leaked key alone can't replay old requests.
+- **Credential.** `Authorization: Bearer cf_live_…` plus an `X-Crossfare-Sign` header: HMAC-SHA256 over the timestamp, method, path and raw body, with the timestamp sent in X-Crossfare-Timestamp, accepted within 60 seconds. The HMAC secret is the SHA-256 of the key, which is all the server stores, so a copy of the database can't pass the Bearer check. A leaked key alone can't replay old requests. A bad credential gets the normal 402 with the reason; a missing scope gets 403, and a rate limit or quota 429.
 - **Controls.** Keys are stored hashed, with scopes (quote, swap), per-key rate limits, a monthly quota and instant revocation.
 - **Billing.** Usage is metered per key and settled off-chain, by invoice or prepaid balance.
 - **Agent self-upgrade.** `POST /v1/vip/pass` is itself paid once over x402 and returns a short-lived token for a set number of calls or 24 hours. An autonomous agent gets VIP pricing without a human issuing a key.
@@ -508,10 +508,10 @@ The caller sets the fee on each quote request; Crossfare shows it in every route
 
 | ID | Area | Requirement | Priority |
 | --- | --- | --- | --- |
-| FR-29 | VIP | Check for a VIP credential before x402; a valid key skips payment | P2 later |
-| FR-30 | VIP | Hashed keys with scopes, rate limits, monthly quota and revocation | P2 later |
-| FR-31 | VIP | Signed requests: HMAC over timestamp and body, 60-second window | P2 later |
-| FR-32 | VIP | Per-key usage metering with export for billing | P2 later |
+| FR-29 | VIP | Check for a VIP credential before x402; a valid key skips payment. Built 8 November | P2 later |
+| FR-30 | VIP | Hashed keys with scopes, rate limits, monthly quota and revocation. Built 8 November | P2 later |
+| FR-31 | VIP | Signed requests: HMAC over timestamp and body, 60-second window. Built 8 November | P2 later |
+| FR-32 | VIP | Per-key usage metering with export for billing. Built 8 November | P2 later |
 | FR-33 | VIP | x402-paid pass that returns a short-lived VIP token | P2 later |
 | FR-34 | Fees | `fee` on quote requests, checked against the cap and per-chain recipients | P2 later |
 | FR-35 | Fees | Uniswap via `integratorFee`, SwapKit via affiliateFee with forwarding, plus ledger mode | P2 later |
