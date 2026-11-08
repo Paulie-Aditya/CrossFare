@@ -8,9 +8,9 @@ Built at ETHGlobal Mumbai, Classic track.
 
 **Try it:** [crossfare.vercel.app](https://crossfare.vercel.app). There's no account to create and no wallet to connect, though swaps use real funds on mainnet, so keep them small.
 
-**Demo video (2 minutes 43 seconds):** a real 10 USDC swap on the deployed site, from quote to delivery, with the payment on HashScan and the quote on Arkiv. Click the image to play it on GitHub.
+**Demo video (2 minutes 43 seconds):** a real 10 USDC swap on the deployed site, from quote to delivery, with the payment on HashScan and the quote on Arkiv. Click the image to download it (14 MB, MP4): GitHub can't play a video this size from the repo.
 
-[![Crossfare demo video](docs/media/demo-cover.png)](docs/media/crossfare-demo.mp4)
+[![Crossfare demo video](docs/media/demo-cover.png)](https://github.com/Paulie-Aditya/CrossFare/raw/main/docs/media/crossfare-demo.mp4)
 
 > **Status:** live, with the UI on Vercel and the API on EC2. Five real swaps have completed: two from a local server before deployment, and three on the deployed site on 7 November. See the [full test report](docs/live-test-2026-11-06.md), which also lists what hasn't been tested.
 
