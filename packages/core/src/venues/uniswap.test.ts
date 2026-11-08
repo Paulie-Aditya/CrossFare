@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { catalogAsset, registerAssets } from "../assets.ts";
 import { createUniswapVenue } from "./uniswap.ts";
 import { VenueError, type FetchLike, type QuoteRequest } from "./types.ts";
 
@@ -288,6 +289,42 @@ describe("uniswap track", () => {
       logs: [{ address: WETH, topics: [WITHDRAWAL, pad("0xrouter0000000000000000000000000000000000")], data: "0x03e8" }],
     });
     expect(await uniswap.track!(input)).toEqual({ status: "completed", amountReceived: "0.000000000000001" });
+  });
+
+  describe("on a chain other than Base", () => {
+    beforeAll(() =>
+      registerAssets([
+        catalogAsset({ chain: "ARB", chainId: "42161", ticker: "ETH", identifier: "ARB.ETH", decimals: 18 }),
+        catalogAsset({ chain: "HOOD", chainId: "4663", ticker: "ETH", identifier: "HOOD.ETH", decimals: 18 }),
+      ]),
+    );
+    afterAll(() => registerAssets([]));
+
+    const onChain = (chainId: number, to: string) => ({
+      ...input,
+      route: { ...route, from: to, to },
+      prepared: { transactions: [{ ...prepared.transactions[0]!, chainId }] },
+    });
+
+    it("reads native output from that chain's own wrapped coin", async () => {
+      const arbitrumWeth = "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1";
+      const { uniswap, getReceipt } = tracked({
+        status: "success",
+        from: AGENT,
+        to: "0xrouter",
+        logs: [
+          { address: WETH, topics: [WITHDRAWAL, pad("0xrouter0000000000000000000000000000000000")], data: "0x01" },
+          { address: arbitrumWeth, topics: [WITHDRAWAL, pad("0xrouter0000000000000000000000000000000000")], data: "0x03e8" },
+        ],
+      });
+      expect(await uniswap.track!(onChain(42161, "arb:eth"))).toEqual({ status: "completed", amountReceived: "0.000000000000001" });
+      expect(getReceipt).toHaveBeenCalledWith(42161, "0xhash");
+    });
+
+    it("leaves the amount to the quote where no wrapped coin is known", async () => {
+      const { uniswap } = tracked({ status: "success", from: AGENT, to: "0xrouter", logs: [] });
+      expect(await uniswap.track!(onChain(4663, "hood:eth"))).toEqual({ status: "completed" });
+    });
   });
 
   it("reads token output from transfers to the recipient only", async () => {

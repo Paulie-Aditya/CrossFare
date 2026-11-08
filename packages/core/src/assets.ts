@@ -1,3 +1,5 @@
+import { evmChainById } from "./evm-chains.ts";
+
 /** Crossfare asset IDs have the form `chain:symbol`, for example `base:usdc`. */
 export type AssetId = string;
 
@@ -109,8 +111,6 @@ export function registerAssets(catalog: readonly Asset[]): void {
   byId = new Map(assets.map((asset) => [asset.id, asset]));
 }
 
-/** The only EVM chains the demo UI and reference agent sign on, so the only ones Uniswap is offered on. */
-const UNISWAP_CHAINS = [ETHEREUM_CHAIN_ID, BASE_CHAIN_ID];
 /** Numeric chain IDs that aren't EVM. */
 const NON_EVM_CHAIN_IDS = ["728126428"];
 
@@ -135,7 +135,7 @@ export function catalogAsset(
     swapkit: token.identifier,
     swapkitChain: token.chainId,
     ...(evmChainId === undefined ? {} : { evmChainId }),
-    ...(evmChainId !== undefined && UNISWAP_CHAINS.includes(evmChainId)
+    ...(evmChainId !== undefined && evmChainById(evmChainId)
       ? { uniswap: { chainId: evmChainId, address: token.address || NATIVE_TOKEN } }
       : {}),
     ...display,

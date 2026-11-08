@@ -13,8 +13,8 @@ export interface Config {
   facilitatorUrl: string;
   /** Unset means POST /v1/swap is free. */
   swapPriceUsd?: string;
-  baseRpcUrl: string;
-  ethereumRpcUrl?: string;
+  /** RPC endpoints by EVM chain ID. A chain without one uses its public RPCs. */
+  rpcUrls: Record<number, string>;
   port: number;
   databasePath: string;
   webRoot: string;
@@ -36,6 +36,18 @@ const REQUIRED = [
 /** Hedera testnet USDC, from Circle's published contract addresses. */
 const TESTNET_USDC = "0.0.429274";
 
+/** RPC_URL_<chainId> for any chain. BASE_RPC_URL and ETHEREUM_RPC_URL still work, and lose to the numbered name. */
+function rpcUrls(env: Record<string, string | undefined>): Record<number, string> {
+  const urls: Record<number, string> = {};
+  if (env.ETHEREUM_RPC_URL) urls[1] = env.ETHEREUM_RPC_URL;
+  if (env.BASE_RPC_URL) urls[8453] = env.BASE_RPC_URL;
+  for (const [name, value] of Object.entries(env)) {
+    const match = /^RPC_URL_(\d+)$/.exec(name);
+    if (match && value) urls[Number(match[1])] = value;
+  }
+  return urls;
+}
+
 export function loadConfig(env: Record<string, string | undefined>): Config {
   const demoAccount = env.DEMO_HEDERA_ACCOUNT || env.AGENT_HEDERA_ACCOUNT;
   const demoKey = env.DEMO_HEDERA_KEY || env.AGENT_HEDERA_KEY;
@@ -56,8 +68,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     usdcTokenId: env.HEDERA_USDC_TOKEN_ID || TESTNET_USDC,
     facilitatorUrl: env.X402_FACILITATOR_URL || "https://x402.org/facilitator",
     ...(env.SWAP_PRICE_USDC ? { swapPriceUsd: env.SWAP_PRICE_USDC } : {}),
-    baseRpcUrl: env.BASE_RPC_URL || "https://mainnet.base.org",
-    ...(env.ETHEREUM_RPC_URL ? { ethereumRpcUrl: env.ETHEREUM_RPC_URL } : {}),
+    rpcUrls: rpcUrls(env),
     port: Number(env.PORT || 8787),
     databasePath: env.DATABASE_PATH || "crossfare.db",
     webRoot: env.WEB_ROOT || "../web/dist",

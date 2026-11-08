@@ -36,11 +36,15 @@ describe("parseCatalog", () => {
     });
   });
 
-  it("offers Uniswap only on the chains Crossfare can sign on", () => {
+  it("offers Uniswap on every chain Uniswap trades on, and only there", () => {
     const address = "0x1111111111111111111111111111111111111111";
-    const [onBase, onArbitrum] = parseCatalog([[token("BASE", "8453", "AERO", address), token("ARB", "42161", "AERO", address)]]);
+    const [onBase, onArbitrum, onGnosis] = parseCatalog([
+      [token("BASE", "8453", "AERO", address), token("ARB", "42161", "AERO", address), token("GNO", "100", "AERO", address)],
+    ]);
     expect(onBase?.uniswap).toEqual({ chainId: 8453, address });
-    expect(onArbitrum?.uniswap).toBeUndefined();
+    expect(onArbitrum?.uniswap).toEqual({ chainId: 42161, address });
+    expect(onGnosis?.uniswap).toBeUndefined();
+    expect(onGnosis?.evmChainId).toBe(100);
   });
 
   it("doesn't treat Tron's numeric chain id as EVM", () => {

@@ -1,4 +1,5 @@
 import { getAsset, toBaseUnits, type Asset, type UniswapToken } from "../assets.ts";
+import { evmChainById } from "../evm-chains.ts";
 import { fromBaseUnits, type Route } from "../routes.ts";
 import {
   VenueError,
@@ -69,21 +70,18 @@ export interface UniswapOptions {
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const WETH_WITHDRAWAL_TOPIC = "0x7fcf532c15f0a6db0bd6d0e038bea71d30d808c7d98cb3bf7268a95bf5081b65";
-const WRAPPED_NATIVE: Record<number, string> = {
-  1: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
-  8453: "0x4200000000000000000000000000000000000006",
-};
 
 const sameAddress = (a: string | null | undefined, b: string) => a?.toLowerCase() === b.toLowerCase();
 const topicAddress = (topic: string | undefined) => `0x${(topic ?? "").slice(-40)}`;
 
 /**
  * Native output arrives through an internal call, which leaves no log of its own,
- * so the WETH unwrap stands in for the amount delivered.
+ * so the wrapped coin's unwrap stands in for the amount delivered. Null where that coin isn't known.
  */
-function deliveredAmount(receipt: ChainReceipt, token: UniswapToken, recipient: string): bigint {
+function deliveredAmount(receipt: ChainReceipt, token: UniswapToken, recipient: string): bigint | null {
   const native = token.address === NATIVE_TOKEN;
-  const wrapped = WRAPPED_NATIVE[token.chainId] ?? "";
+  const wrapped = evmChainById(token.chainId)?.wrappedNative ?? "";
+  if (native && !wrapped) return null;
   return receipt.logs.reduce((sum, log) => {
     if (native) {
       const isUnwrap = sameAddress(log.address, wrapped) && log.topics[0] === WETH_WITHDRAWAL_TOPIC;
@@ -233,6 +231,8 @@ export function createUniswapVenue(options: UniswapOptions): Venue {
       const output = getAsset(route.to);
       if (!output.uniswap) return { status: "completed" };
       const amount = deliveredAmount(receipt, output.uniswap, request.to.address);
+      // With no wrapped coin to measure by, the quote's amount stands.
+      if (amount === null) return { status: "completed" };
       return {
         status: "completed",
         amountReceived: fromBaseUnits(amount.toString(), output.decimals),

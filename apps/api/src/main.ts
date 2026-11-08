@@ -1,8 +1,7 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { HTTPFacilitatorClient } from "@x402/core/server";
-import { createPublicClient, erc20Abi, fallback, http, type Address, type Hash } from "viem";
-import { base, mainnet } from "viem/chains";
+import { createPublicClient, erc20Abi, fallback, http, type Address, type Hash, type PublicClient } from "viem";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
@@ -11,6 +10,7 @@ import {
   createUniswapVenue,
   fetchSwapKitCatalog,
   registerAssets,
+  UNISWAP_CHAINS,
   type Asset,
   type GetReceipt,
 } from "@crossfare/core";
@@ -48,22 +48,26 @@ async function loadCatalog() {
 
 await loadCatalog();
 
-const readers = {
-  [base.id]: createPublicClient({ chain: base, transport: http(config.baseRpcUrl) }),
-  [mainnet.id]: createPublicClient({
-    chain: mainnet,
-    transport: fallback([...(config.ethereumRpcUrl ? [http(config.ethereumRpcUrl)] : []), http("https://ethereum-rpc.publicnode.com"), http("https://eth.drpc.org"), http()]),
-  }),
-};
+/** Ethereum's default public RPC rate-limits, so it gets more to fall back on. */
+const SPARE_RPCS: Record<number, string[]> = { 1: ["https://ethereum-rpc.publicnode.com", "https://eth.drpc.org"] };
 
-const balancesOn = (reader: (typeof readers)[keyof typeof readers]) => ({
+/** One reader per chain Uniswap trades on: receipts for its swaps, balances for deposits. */
+const readers = new Map<number, PublicClient>(
+  UNISWAP_CHAINS.map((chain) => {
+    const urls = [...(config.rpcUrls[chain.chainId] ? [config.rpcUrls[chain.chainId]!] : []), ...(SPARE_RPCS[chain.chainId] ?? [])];
+    const transport = fallback([...urls.map((url) => http(url)), http()]);
+    return [chain.chainId, createPublicClient({ chain: chain.viem, transport }) as PublicClient];
+  }),
+);
+
+const balancesOn = (reader: PublicClient) => ({
   tokenBalance: (token: string, holder: string) =>
     reader.readContract({ address: token as Address, abi: erc20Abi, functionName: "balanceOf", args: [holder as Address] }),
   nativeBalance: (holder: string) => reader.getBalance({ address: holder as Address }),
 });
 
 const getReceipt: GetReceipt = async (chainId, hash) => {
-  const reader = readers[chainId as keyof typeof readers];
+  const reader = readers.get(chainId);
   if (!reader) throw new Error(`No chain reader for ${chainId}`);
   // viem throws until the transaction is mined.
   return reader.getTransactionReceipt({ hash: hash as Hash }).catch(() => null);
@@ -87,7 +91,7 @@ const app = createApp({
   payTo: config.payToAccount,
   ...(config.swapPriceUsd ? { swapPriceUsd: config.swapPriceUsd } : {}),
   arkivWriter: arkiv.writer,
-  depositBalance: createDepositWatcher({ [base.id]: balancesOn(readers[base.id]), [mainnet.id]: balancesOn(readers[mainnet.id]) }),
+  depositBalance: createDepositWatcher(Object.fromEntries([...readers].map(([chainId, reader]) => [chainId, balancesOn(reader)]))),
   screen: createSwapKitScreen({ apiKey: config.swapkitApiKey }),
 });
 

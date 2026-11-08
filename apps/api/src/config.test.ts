@@ -17,10 +17,23 @@ describe("loadConfig", () => {
     expect(loadConfig(env)).toMatchObject({
       usdcTokenId: "0.0.429274",
       facilitatorUrl: "https://x402.org/facilitator",
-      baseRpcUrl: "https://mainnet.base.org",
+      rpcUrls: {},
       port: 8787,
       databasePath: "crossfare.db",
     });
+  });
+
+  it("takes an RPC for any chain by its ID, keeping the older Base and Ethereum names", () => {
+    const config = loadConfig({
+      ...env,
+      BASE_RPC_URL: "https://base.example",
+      ETHEREUM_RPC_URL: "https://eth.example",
+      RPC_URL_42161: "https://arb.example",
+      RPC_URL_8453: "https://base-override.example",
+      RPC_URL_x: "https://ignored.example",
+      RPC_URL_10: "",
+    });
+    expect(config.rpcUrls).toEqual({ 1: "https://eth.example", 8453: "https://base-override.example", 42161: "https://arb.example" });
   });
 
   it("pays for the demo from the agent's account unless told otherwise", () => {

@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./arkiv-schema": "./src/arkiv-schema.ts",
+    "./evm-chains": "./src/evm-chains.ts",
     "./hedera-key": "./src/hedera-key.ts"
   },
   "scripts": {
