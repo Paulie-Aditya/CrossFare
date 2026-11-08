@@ -1,14 +1,13 @@
 import type { Chain } from "viem";
-import { base, mainnet } from "viem/chains";
+import { evmChainById } from "@crossfare/core";
 
-export interface RpcUrls {
-  ethereum: string;
-  base: string;
-}
+/** RPC endpoints by chain ID. A chain without one uses its public RPC. */
+export type RpcUrls = Record<number, string>;
 
-/** The chains this agent will sign on. Anything else is refused, not guessed at. */
+/** The agent signs on the chains Crossfare quotes Uniswap on. Anything else is refused, not guessed at. */
 export function chainFor(chainId: number, rpcUrls: RpcUrls): { chain: Chain; rpcUrl: string } {
-  if (chainId === mainnet.id) return { chain: mainnet, rpcUrl: rpcUrls.ethereum };
-  if (chainId === base.id) return { chain: base, rpcUrl: rpcUrls.base };
-  throw new Error(`Agent only signs on Ethereum and Base, not ${chainId}`);
+  const evm = evmChainById(chainId);
+  const rpcUrl = rpcUrls[chainId] ?? evm?.viem.rpcUrls.default.http[0];
+  if (!evm || !rpcUrl) throw new Error(`Agent only signs on chains Uniswap trades on, not ${chainId}`);
+  return { chain: evm.viem, rpcUrl };
 }

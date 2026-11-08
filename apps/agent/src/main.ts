@@ -67,7 +67,7 @@ async function postPaid(path: string, body: unknown) {
 const arkiv = createArkivReader({ chain: rabdi({ accessKey: config.arkivAccessKey }), transport: http() });
 
 async function sendTransaction(transaction: AgentTransaction): Promise<string> {
-  const { chain, rpcUrl } = chainFor(transaction.chainId, { ethereum: config.ethereumRpcUrl, base: config.baseRpcUrl });
+  const { chain, rpcUrl } = chainFor(transaction.chainId, config.rpcUrls);
   const wallet = createWalletClient({ account, chain, transport: http(rpcUrl) });
   const reader = createPublicClient({ chain, transport: http(rpcUrl) });
   const hash = await wallet.sendTransaction({

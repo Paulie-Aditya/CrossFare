@@ -21,6 +21,15 @@ describe("loadAgentConfig", () => {
     });
   });
 
+  it("signs through public RPCs unless told otherwise, on any chain by its ID", () => {
+    expect(loadAgentConfig(env).rpcUrls).toEqual({ 1: "https://ethereum-rpc.publicnode.com", 8453: "https://mainnet.base.org" });
+    expect(loadAgentConfig({ ...env, BASE_RPC_URL: "https://b.example", RPC_URL_42161: "https://arb.example" }).rpcUrls).toEqual({
+      1: "https://ethereum-rpc.publicnode.com",
+      8453: "https://b.example",
+      42161: "https://arb.example",
+    });
+  });
+
   it("enables live swaps only on the exact value", () => {
     expect(loadAgentConfig({ ...env, AGENT_ALLOW_LIVE_SWAPS: "1" }).allowLiveSwaps).toBe(false);
     expect(loadAgentConfig({ ...env, AGENT_ALLOW_LIVE_SWAPS: "true" }).allowLiveSwaps).toBe(true);

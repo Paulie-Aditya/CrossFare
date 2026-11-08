@@ -16,8 +16,8 @@ export interface AgentConfig {
   perCallCap: bigint;
   totalBudget: bigint;
   usdcTokenId: string;
-  baseRpcUrl: string;
-  ethereumRpcUrl: string;
+  /** By chain ID. Ethereum and Base have defaults; any other chain can be set as RPC_URL_<chainId>. */
+  rpcUrls: Record<number, string>;
 }
 
 const REQUIRED = [
@@ -44,8 +44,16 @@ export function loadAgentConfig(env: Record<string, string | undefined>): AgentC
     perCallCap: usdc(env.AGENT_PER_CALL_CAP_USDC || "0.10"),
     totalBudget: usdc(env.AGENT_BUDGET_USDC || "0.20"),
     usdcTokenId: env.HEDERA_USDC_TOKEN_ID || TESTNET_USDC,
-    baseRpcUrl: env.BASE_RPC_URL || "https://mainnet.base.org",
-    ethereumRpcUrl: env.ETHEREUM_RPC_URL || "https://ethereum-rpc.publicnode.com",
+    rpcUrls: {
+      1: env.ETHEREUM_RPC_URL || "https://ethereum-rpc.publicnode.com",
+      8453: env.BASE_RPC_URL || "https://mainnet.base.org",
+      ...Object.fromEntries(
+        Object.entries(env).flatMap(([name, value]) => {
+          const match = /^RPC_URL_(\d+)$/.exec(name);
+          return match && value ? [[Number(match[1]), value]] : [];
+        }),
+      ),
+    },
   };
 }
 
