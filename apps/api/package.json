@@ -6,7 +6,8 @@
   "license": "MIT",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "start": "node --env-file-if-exists=../../.env src/main.ts"
+    "start": "node --env-file-if-exists=../../.env src/main.ts",
+    "vip": "node --env-file-if-exists=../../.env src/vip-cli.ts"
   },
   "dependencies": {
     "@arkiv-network/sdk": "^1.0.1",
