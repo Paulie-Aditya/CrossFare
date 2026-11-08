@@ -74,7 +74,7 @@ The same calls settled one assumption: SwapKit takes sellAmount in whole units, 
 
 ### Build status
 
-Live at crossfare.vercel.app, with the UI on Vercel and the API on EC2. Two real swaps have completed, both run from a local server: 2 USDC on Ethereum delivered 1.997376 USDC on Base through the agent, and 5 USDC on Ethereum delivered 0.0022257 ETH on Base through the UI with no wallet connected. The deployed site has paid for testnet quotes and opened a deposit address, but no real swap has run on it yet. A real Uniswap swap, the UI with a real wallet and a deposit from an exchange are also untested.
+Live at crossfare.vercel.app, with the UI on Vercel and the API on EC2. Five real swaps have completed. Two ran from a local server: 2 USDC on Ethereum delivered 1.997376 USDC on Base through the agent, and 5 USDC on Ethereum delivered 0.0022257 ETH on Base through the UI with no wallet connected. Three ran on the deployed site on 7 November, all through SwapKit and NEAR, including 10 USDC on Ethereum to 0.0044597 ETH on Base, shown in the demo video. A real Uniswap swap, the UI with a real wallet and a deposit from an exchange are also untested.
 
 - [x] The agent asks for the receiving address instead of defaulting to its own (FR-38)
 - [x] The agent and the UI sign on Ethereum, not only on Base (FR-39)
@@ -87,10 +87,10 @@ Live at crossfare.vercel.app, with the UI on Vercel and the API on EC2. Two real
 * [x] Status tracks deposit-only swaps by channel ID, and polling respects SwapKit's rate limit
 * [x] A script associates USDC on both Hedera accounts
 * [x] A real 5 USDC swap with no wallet connected: Ethereum USDC to ETH on Base, delivered
-* [x] Live price, dollar values on quotes, stage tracker, result screen, wallet dialog and readable history (FR-44 to FR-48). The stage tracker has run on a mock only, not yet during a real swap
+* [x] Live price, dollar values on quotes, stage tracker, result screen, wallet dialog and readable history (FR-44 to FR-48). The stage tracker has run during real swaps on the deployed site
 * [x] Every SwapKit token in a searchable picker with logos, and deposits that differ from the quote reported rather than hidden (FR-49, FR-50). Real deposits of a different amount are untested
 * [x] Deployed: the UI on Vercel, which forwards API requests to EC2 behind nginx, with HTTPS on a temporary sslip.io name
-* [ ] A real swap on the deployed site, which is also the first real run of the stage tracker and on-chain deposit check
+* [x] Real swaps on the deployed site, which were also the first real runs of the stage tracker and on-chain deposit check
 * [ ] The MCP server (FR-2, P1), which isn't built, so packages/mcp doesn't exist
 
 ## How Crossfare is different
@@ -541,7 +541,7 @@ Crossfare enters the Classic track for finalist judging plus three partner prize
 - [x] At least one x402-protected endpoint settling on Hedera testnet through a listed facilitator or our own
 - [x] An agent finds the endpoint and completes a paid request end to end, with no human approving
 - [x] README covers setup, architecture and the payment flow, with the Hedera transaction ID of a settled payment
-- [ ] Demo video of 5 minutes or less showing a payment settling, linked on HashScan
+- [x] Demo video of 5 minutes or less showing a payment settling, linked on HashScan
 - [x] Extra points: spending limits (FR-26), HCS audit log (FR-7), settling in USDC (HTS)
 - [x] For No Solidity: no Solidity anywhere, HTS + HCS used through the SDK
 
@@ -650,7 +650,7 @@ If the hour-24 gate slips, cut the MCP server and quote explorer first, then tri
 ### Submission checklist
 
 - [x] Public GitHub repo with an MIT license, README, setup steps and architecture diagram
-- [ ] Live demo link and demo video
+- [x] Live demo link and demo video
 - [ ] Partner prizes selected: Uniswap, Hedera, Arkiv
 - [ ] Every sponsor checklist above ticked
 - [x] Note in the README on how AI tools were used

@@ -8,11 +8,20 @@ Built at ETHGlobal Mumbai, Classic track.
 
 **Try it:** [crossfare.vercel.app](https://crossfare.vercel.app). There's no account to create and no wallet to connect, though swaps use real funds on mainnet, so keep them small.
 
-**Demo video:** link to follow.
+**Demo video (2 minutes 43 seconds):** a real 10 USDC swap on the deployed site, from quote to delivery, with the payment on HashScan and the quote on Arkiv. Click the image to play it on GitHub.
 
-> **Status:** live, with the UI on Vercel and the API on EC2. Two real swaps have completed, both run from a local server before deployment. The deployed site has paid for testnet quotes and opened a deposit address, but no real swap has run on it yet. See the [full test report](docs/live-test-2026-11-06.md), which also lists what hasn't been tested.
+[![Crossfare demo video](docs/media/demo-cover.png)](docs/media/crossfare-demo.mp4)
+
+> **Status:** live, with the UI on Vercel and the API on EC2. Five real swaps have completed: two from a local server before deployment, and three on the deployed site on 7 November. See the [full test report](docs/live-test-2026-11-06.md), which also lists what hasn't been tested.
 
 ## Live evidence
+
+**Swap on the deployed site, shown in the demo video:** 10 USDC on Ethereum delivered 0.0044597 ETH on Base, through NEAR. No wallet was connected; the deposit came from the developer's own wallet app.
+
+- **Settled x402 payment on Hedera:** [`0.0.9185802@1794012817.780315545`](https://hashscan.io/testnet/transaction/0.0.9185802@1794012817.780315545)
+- **Quote on Arkiv:** [`0x83a7e0…f7bc`](https://rabdi.explorer.arkiv.network/entity/0x83a7e022d8108fcdeffda0aff22e4c7a28ddbe96e0c573bc4ac70d0fa441f7bc)
+- **Deposit on Ethereum:** [`0x95354f…6c58`](https://etherscan.io/tx/0x95354fe5dbd1ecf12205712f9b4d5b69c7e53a126b79e6aab73a8dcd13f46c58)
+- **Delivery on Base:** [`0xfb4f27…dddf`](https://basescan.org/tx/0xfb4f27671495fa924b11c04ac3943e0cc9dd56d9bc07604fa3377cbcb2aadddf)
 
 **Swap through the agent:** 2 USDC on Ethereum delivered 1.997376 USDC on Base.
 

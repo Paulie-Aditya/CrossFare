@@ -100,3 +100,16 @@ The AI listed seven open points: how the agent is driven, planning artifacts in 
 
 > yep, looks like everything is done from your side, update the prd and make it accessible in the repo itself, post that I will polish the frontend and fix issues where necessary, update readme and other docs now that everything is live. later I will give you the demo video link so that we can embed it here itself.
 
+
+## 23. Demo video, logo and the disclosure
+
+> demo vid is in Downloads named: crossfare-demo-final, embed that in the readme; update the ui with the crossfare logo as well, it's in downloads. update AI_USAGE.md; some things I did:
+>
+> Keep it accurate, but it currently undersells real work you did:
+> the product design, the FixedFloat-style flow and the scope decisions
+> the live testing, where you found the placeholder-hash bug, the missed-deposit race and the wrong refund wording
+> funding and running both real swaps
+>
+> , along with product research
+
+The AI checked each point against the commit history and the session log before writing it down. The placeholder-hash bug and the "race" were one bug: the developer saw the order page drop its deposit address and suspected a race, and the AI traced it to SwapKit's placeholder hashes. The first real swap was funded by the developer and run by the AI through the agent on the developer's instruction. `AI_USAGE.md` records both that way.
