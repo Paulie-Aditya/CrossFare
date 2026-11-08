@@ -41,10 +41,7 @@ export function App() {
     <>
       <header className="masthead glass">
         <div className="brand" aria-label="Crossfare">
-          <svg viewBox="0 0 32 32" width="24" height="24" aria-hidden="true">
-            <path d="M5 23C11 23 11 9 17 9h10" fill="none" stroke="var(--mint)" strokeWidth="3.4" strokeLinecap="round" />
-            <path d="M5 9c6 0 6 14 12 14h10" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" />
-          </svg>
+          <img src="/logo.svg" alt="" width="35" height="22" />
           <span>Crossfare</span>
         </div>
         <nav aria-label="Pages">

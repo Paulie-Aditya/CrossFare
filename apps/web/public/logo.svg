@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="96 156 320 200" role="img" aria-label="Crossfare">
+  <mask id="notches">
+    <rect x="96" y="156" width="320" height="200" fill="#fff"/>
+    <circle cx="96" cy="256" r="26" fill="#000"/>
+    <circle cx="416" cy="256" r="26" fill="#000"/>
+  </mask>
+  <rect x="96" y="156" width="320" height="200" rx="34" fill="#F5AB45" mask="url(#notches)"/>
+  <g fill="none" stroke="#0F1722" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M140 222H296M266 196l30 26-30 26"/>
+    <path d="M300 290H146M174 264l-30 26 30 26"/>
+  </g>
+  <path d="M342 176V326" fill="none" stroke="#0F1722" stroke-width="8" stroke-dasharray="10 10"/>
+  <circle cx="379" cy="256" r="10" fill="#0F1722"/>
+</svg>
