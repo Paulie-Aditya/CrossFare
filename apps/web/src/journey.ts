@@ -1,3 +1,5 @@
+import { walletChain } from "./wallet-chains.ts";
+
 export interface PublicRoute {
   quoteId: string;
   venue: string;
@@ -271,7 +273,7 @@ export function formatCountdown(validUntil: string, now: Date): string {
 export const hashscanUrl = (transactionId: string) => `https://hashscan.io/testnet/transaction/${transactionId}`;
 export const arkivEntityUrl = (entityKey: string) => `https://rabdi.explorer.arkiv.network/entity/${entityKey}`;
 
-const EXPLORERS: Record<string, { label: string; base: string; address?: string; evm?: true }> = {
+const EXPLORERS: Record<string, Explorer> = {
   eth: { label: "Etherscan", base: "https://etherscan.io/", evm: true },
   base: { label: "Basescan", base: "https://basescan.org/", evm: true },
   arb: { label: "Arbiscan", base: "https://arbiscan.io/", evm: true },
@@ -285,23 +287,36 @@ const EXPLORERS: Record<string, { label: string; base: string; address?: string;
   xrp: { label: "XRPScan", base: "https://xrpscan.com/", address: "account/" },
 };
 
+type Explorer = { label: string; base: string; address?: string; evm?: true };
+
+/** The hand-picked names first, then whatever viem knows for the other Uniswap chains. */
+function explorerFor(chain: string): Explorer | undefined {
+  const known = EXPLORERS[chain];
+  if (known) return known;
+  const wallet = walletChain(chain);
+  const explorer = wallet?.blockExplorers?.default;
+  if (!wallet || !explorer) return undefined;
+  const label = explorer.name === "Explorer" ? `${wallet.name} explorer` : explorer.name;
+  return { label, base: `${explorer.url.replace(/\/$/, "")}/`, evm: true };
+}
+
 export function explorerTxUrl(chain: string, hash: string): string {
-  return `${(EXPLORERS[chain] ?? EXPLORERS.base!).base}tx/${hash}`;
+  return `${(explorerFor(chain) ?? EXPLORERS.base!).base}tx/${hash}`;
 }
 
 export function explorerAddressUrl(chain: string, address: string): string | null {
-  const explorer = EXPLORERS[chain];
+  const explorer = explorerFor(chain);
   return explorer ? `${explorer.base}${explorer.address ?? "address/"}${address}` : null;
 }
 
-export const explorerName = (chain: string) => EXPLORERS[chain]?.label ?? null;
+export const explorerName = (chain: string) => explorerFor(chain)?.label ?? null;
 
 /** The first hash is the sender's and the last lands on the destination. Any between may be on another chain. */
 export function explorerLinks(hashes: string[], fromAsset: string, toAsset: string) {
   const ends = hashes.length > 2 ? [hashes[0]!, hashes.at(-1)!] : hashes;
   return ends.flatMap((hash, index) => {
     const chain = (index === 0 ? fromAsset : toAsset).split(":")[0] ?? "";
-    const explorer = EXPLORERS[chain];
+    const explorer = explorerFor(chain);
     // No link beats a wrong one. The provider's own chain can also fill the last place until delivery.
     if (!explorer || (explorer.evm && !hash.startsWith("0x"))) return [];
     return [
@@ -317,14 +332,13 @@ export function explorerLinks(hashes: string[], fromAsset: string, toAsset: stri
 
 export type RouteAction = "deposit" | "wallet" | "connect" | "unsupported";
 
-const SIGNING_CHAINS = ["eth", "base"];
-
-export const canSignOn = (asset: string) => SIGNING_CHAINS.includes(asset.split(":")[0] ?? "");
+/** The page's wallet signs on every chain Uniswap trades on. */
+export const canSignOn = (asset: string) => walletChain(asset.split(":")[0] ?? "") !== undefined;
 
 /** A plain transfer works from any wallet software. Anything else needs a signature on a chain this page can use. */
 export function routeAction(route: PublicRoute, connected: boolean, sourceChain = "base"): RouteAction {
   if (route.depositable) return "deposit";
-  if (!SIGNING_CHAINS.includes(sourceChain)) return "unsupported";
+  if (!walletChain(sourceChain)) return "unsupported";
   return connected ? "wallet" : "connect";
 }
 
@@ -514,4 +528,15 @@ export function errorMessage(body: unknown, status: number): string {
   const code = (body as { error?: unknown } | null)?.error;
   if (typeof code === "string") return ERROR_MESSAGES[code] ?? `The request failed: ${code}.`;
   return `The request failed with status ${status}.`;
+}
+
+/** A token on no list is quoted on Uniswap only, so it can't cross chains. Blaming the amount would mislead. */
+export function noRouteMessage(from: string, to: string, unverified: (id: string) => boolean): string {
+  const chainOf = (id: string) => id.split(":")[0] ?? "";
+  if (chainOf(from) !== chainOf(to)) {
+    const name = (id: string) => walletChain(chainOf(id))?.name ?? chainOf(id).toUpperCase();
+    if (unverified(to)) return `A token on no list only swaps on its own chain. Send something on ${name(to)}.`;
+    if (unverified(from)) return `A token on no list only swaps on its own chain. Receive something on ${name(from)}.`;
+  }
+  return "No route for this amount. Try a larger one.";
 }

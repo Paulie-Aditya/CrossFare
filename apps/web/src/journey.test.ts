@@ -6,6 +6,7 @@ import {
   sentComparedToQuote,
   topUpNeeded,
   canSignOn,
+  noRouteMessage,
   defaultSlippage,
   errorMessage,
   explorerLinks,
@@ -157,6 +158,14 @@ describe("helpers", () => {
     expect(explorerTxUrl("btc", "abc")).toBe("https://mempool.space/tx/abc");
   });
 
+  it("links any Uniswap chain to its explorer, even one without a hand-picked name", () => {
+    expect(explorerTxUrl("unichain", "0xh")).toBe("https://uniscan.xyz/tx/0xh");
+    expect(explorerAddressUrl("zora", "0xa")).toBe("https://explorer.zora.energy/address/0xa");
+    expect(explorerLinks(["0xh"], "unichain:eth", "unichain:eth")).toEqual([
+      { hash: "0xh", kind: "deposit", label: "Uniscan", url: "https://uniscan.xyz/tx/0xh" },
+    ]);
+  });
+
   it("shortens long identifiers only", () => {
     expect(shorten("0x1234567890abcdef1234")).toBe("0x1234…1234");
     expect(shorten("0x12")).toBe("0x12");
@@ -285,6 +294,22 @@ describe("form helpers", () => {
   it("needs a connected wallet for a route that takes a signature", () => {
     expect(routeAction(stub(false), true)).toBe("wallet");
     expect(routeAction(stub(false), false)).toBe("connect");
+  });
+
+  it("signs on every chain Uniswap trades on, and nowhere else", () => {
+    expect(routeAction(stub(false), true, "arb")).toBe("wallet");
+    expect(routeAction(stub(false), true, "unichain")).toBe("wallet");
+    expect(routeAction(stub(false), true, "gno")).toBe("unsupported");
+    expect(canSignOn("zora:eth")).toBe(true);
+    expect(canSignOn("btc:btc")).toBe(false);
+  });
+
+  it("says why an unlisted token has no route across chains, rather than blaming the amount", () => {
+    const unverified = (id: string) => id === "base:kntq-0xb801";
+    expect(noRouteMessage("eth:usdc", "base:kntq-0xb801", unverified)).toBe("A token on no list only swaps on its own chain. Send something on Base.");
+    expect(noRouteMessage("base:kntq-0xb801", "eth:usdc", unverified)).toBe("A token on no list only swaps on its own chain. Receive something on Base.");
+    expect(noRouteMessage("base:eth", "base:kntq-0xb801", unverified)).toBe("No route for this amount. Try a larger one.");
+    expect(noRouteMessage("eth:usdc", "base:eth", unverified)).toBe("No route for this amount. Try a larger one.");
   });
 
   it("uses wider slippage across chains", () => {
@@ -511,7 +536,7 @@ describe("routes on chains this page can't sign on", () => {
 
   it("says so anywhere else, even with a wallet connected", () => {
     expect(routeAction(needsSignature, true, "sol")).toBe("unsupported");
-    expect(routeAction(needsSignature, true, "arb")).toBe("unsupported");
+    expect(routeAction(needsSignature, true, "gno")).toBe("unsupported");
   });
 });
 
@@ -522,11 +547,11 @@ describe("explorers across chains", () => {
   });
 
   it("gives no link for a chain it has no explorer for, rather than a wrong one", () => {
-    expect(explorerLinks(["0xa"], "hood:eth", "base:eth")).toEqual([]);
+    expect(explorerLinks(["0xa"], "bera:bera", "base:eth")).toEqual([]);
   });
 
   it("gives no address link for an unknown chain", () => {
-    expect(explorerAddressUrl("hood", "0xa")).toBeNull();
+    expect(explorerAddressUrl("bera", "0xa")).toBeNull();
     expect(explorerAddressUrl("arb", "0xa")).toBe("https://arbiscan.io/address/0xa");
   });
 });
@@ -535,7 +560,8 @@ describe("sending with a connected wallet", () => {
   it("is only offered on chains this page can sign on", () => {
     expect(canSignOn("eth:usdc")).toBe(true);
     expect(canSignOn("base:eth")).toBe(true);
-    expect(canSignOn("arb:eth")).toBe(false);
+    expect(canSignOn("arb:eth")).toBe(true);
+    expect(canSignOn("gno:xdai")).toBe(false);
     expect(canSignOn("sol:sol")).toBe(false);
   });
 

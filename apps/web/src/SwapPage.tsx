@@ -3,7 +3,7 @@ import { useAccount, useConfig, useSendTransaction, useSwitchChain } from "wagmi
 import { waitForTransactionReceipt } from "wagmi/actions";
 import { QRCodeSVG } from "qrcode.react";
 import { get, post } from "./api.ts";
-import { chainLabel, chainNameOf, isEvmAsset, symbolOf, type AssetOption, type CatalogStatus, type ChainOption } from "./asset-book.ts";
+import { chainLabel, chainNameOf, contractOf, isEvmAsset, isUnverified, symbolOf, type AssetOption, type CatalogStatus, type ChainOption } from "./asset-book.ts";
 import { Delivered } from "./Delivered.tsx";
 import {
   arkivEntityUrl,
@@ -27,6 +27,7 @@ import {
   orderStages,
   reduceJourney,
   routeAction,
+  noRouteMessage,
   sentComparedToQuote,
   shorten,
   statusLabel,
@@ -43,6 +44,7 @@ import { useLivePrice } from "./live-price.ts";
 import { InFlight, Stepper } from "./OrderTracker.tsx";
 import { TokenButton } from "./TokenPicker.tsx";
 import { CopyButton } from "./ui.tsx";
+import type { WalletChainId } from "./wagmi.ts";
 
 const STATUS_POLL_MS = 4_000;
 const ARKIV_POLL_MS = 5_000;
@@ -483,7 +485,7 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
 
   async function signAll(swapId: string, transactions: SwapTransaction[]) {
     for (const transaction of transactions) {
-      const target = transaction.chainId as 1 | 8453;
+      const target = transaction.chainId as WalletChainId;
       if (chainId !== target) await switchChainAsync({ chainId: target });
       const hash = await sendTransactionAsync({
         chainId: target,
@@ -635,12 +637,31 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
                 {pricing
                   ? " "
                   : price.status === "no_route"
-                    ? "No route for this amount. Try a larger one."
+                    ? noRouteMessage(from, to, isUnverified)
                     : price.status === "unavailable"
                       ? "Prices aren't available right now. You can still get quotes."
                       : (formatUsd(shownUsd?.out) ?? " ")}
               </p>
             </div>
+
+            {[from, to].filter(isUnverified).map((id) => {
+              const contract = contractOf(id);
+              const chain = id.split(":")[0] ?? "";
+              const link = explorerAddressUrl(chain, contract);
+              return (
+                <p key={id} className="swap-warning" role="alert">
+                  {symbolOf(id)} is on no token list. Anyone can deploy a token with any name, so check its contract,{" "}
+                  {link ? (
+                    <a href={link} target="_blank" rel="noreferrer">
+                      {shorten(contract)}
+                    </a>
+                  ) : (
+                    shorten(contract)
+                  )}
+                  , before you swap.
+                </p>
+              );
+            })}
 
             <details className="swap-details">
               <summary aria-busy={pricing}>

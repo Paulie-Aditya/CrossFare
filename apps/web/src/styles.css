@@ -11,6 +11,7 @@
   --sky: #8ab4ff;
   --violet: #a78bff;
   --danger: #ff8e8e;
+  --caution: #ffd591;
   --sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
   color-scheme: dark;
@@ -975,6 +976,30 @@ h2 { font-size: 21px; font-weight: 600; letter-spacing: -0.025em; }
 .token-option small { overflow: hidden; color: var(--muted); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 
 .token-contract { flex: none; color: var(--faint); font: 400 11.5px/1 var(--mono); }
+
+.token-badge {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 213, 145, 0.45);
+  border-radius: 999px;
+  color: var(--caution);
+  font: 600 10.5px/1.2 var(--sans);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.swap-warning {
+  margin: 10px 0 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 213, 145, 0.4);
+  border-radius: 14px;
+  background: rgba(255, 213, 145, 0.08);
+  color: #ffe6bf;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.swap-warning a { color: var(--caution); font-family: var(--mono); }
 
 .token-search {
   width: 100%;

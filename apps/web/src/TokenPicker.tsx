@@ -1,10 +1,52 @@
-import { useMemo, useState } from "react";
-import { chainLogoOf, chainNameOf, displaySymbol, filterAssets, pickerMessage, symbolOf, type AssetOption, type CatalogStatus, type ChainOption } from "./asset-book.ts";
+import { useEffect, useMemo, useState } from "react";
+import { get } from "./api.ts";
+import {
+  addAssets,
+  chainLabel,
+  chainLogoOf,
+  chainNameOf,
+  contractOf,
+  contractQuery,
+  displaySymbol,
+  filterAssets,
+  pickerMessage,
+  symbolOf,
+  type AssetOption,
+  type CatalogStatus,
+  type ChainOption,
+} from "./asset-book.ts";
 import { shorten } from "./journey.ts";
 import { Coin, Modal } from "./ui.tsx";
+import { walletChain } from "./wallet-chains.ts";
 
-/** The contract, for telling apart tokens that share a ticker. */
-const contractOf = (id: string) => id.split(":")[1]?.split("-").slice(1).join("-") ?? "";
+type Lookup = { address: string; status: "loading" | "done" | "failed"; tokens: AssetOption[] };
+
+/** A pasted contract the list doesn't have is looked up on chain, on the chosen chain or on every Uniswap chain. */
+function useContractLookup(query: string, chain: string | null, listed: number): Lookup | null {
+  const address = contractQuery(query);
+  const scope = chain && walletChain(chain) ? chain : null;
+  const [lookup, setLookup] = useState<Lookup | null>(null);
+  useEffect(() => {
+    if (!address || listed > 0) return setLookup(null);
+    let current = true;
+    setLookup({ address, status: "loading", tokens: [] });
+    get(`/v1/tokens/${address}${scope ? `?chain=${scope}` : ""}`)
+      .then((answer) => {
+        if (current) setLookup({ address, status: answer.ok ? "done" : "failed", tokens: answer.ok ? answer.body.tokens : [] });
+      })
+      .catch(() => current && setLookup({ address, status: "failed", tokens: [] }));
+    return () => {
+      current = false;
+    };
+  }, [address, scope, listed]);
+  return lookup;
+}
+
+function lookupMessage(lookup: Lookup, chain: string | null): string {
+  if (lookup.status === "loading") return chain ? `Looking for that contract on ${chainLabel(chain)}.` : "Looking for that contract on every chain Uniswap trades on.";
+  if (lookup.status === "failed") return "That contract couldn't be looked up. Try again in a moment.";
+  return chain ? `No token at that address on ${chainLabel(chain)}.` : "No token at that address on any chain Uniswap trades on.";
+}
 
 function ChainChip(props: { chain: ChainOption | null; active: boolean; onPick: () => void }) {
   const logo = props.chain && chainLogoOf(props.chain.id);
@@ -28,6 +70,13 @@ export function TokenButton(props: {
   const [query, setQuery] = useState("");
   const [chain, setChain] = useState<string | null>(null);
   const found = useMemo(() => filterAssets(props.assets, query, chain), [props.assets, query, chain]);
+  const lookup = useContractLookup(query, chain, found.total);
+  const shown = found.shown.length > 0 ? found.shown : (lookup?.tokens ?? []);
+  const pick = (option: AssetOption) => {
+    if (option.verified === false) addAssets([option]);
+    props.onPick(option.id);
+    setOpen(false);
+  };
   return (
     <>
       <button
@@ -64,11 +113,11 @@ export function TokenButton(props: {
               <ChainChip key={option.id} chain={option} active={chain === option.id} onPick={() => setChain(option.id)} />
             ))}
           </div>
-          {found.shown.length === 0 ? (
-            <p className="token-empty" role="status">{pickerMessage(props.catalogStatus, query)}</p>
+          {shown.length === 0 ? (
+            <p className="token-empty" role="status">{lookup ? lookupMessage(lookup, chain) : pickerMessage(props.catalogStatus, query)}</p>
           ) : (
             <ul className="token-list">
-              {found.shown.map((option) => {
+              {shown.map((option) => {
                 const contract = contractOf(option.id);
                 return (
                   <li key={option.id}>
@@ -76,10 +125,7 @@ export function TokenButton(props: {
                       type="button"
                       className="token-option"
                       aria-current={option.id === props.asset || undefined}
-                      onClick={() => {
-                        props.onPick(option.id);
-                        setOpen(false);
-                      }}
+                      onClick={() => pick(option)}
                     >
                       <Coin asset={option.id} size={36} />
                       <span className="token-option-text">
@@ -87,6 +133,7 @@ export function TokenButton(props: {
                         {/* A native coin is usually named after its chain, which needn't be said twice. */}
                         <small>{option.name === chainNameOf(option.id) ? option.name : `${option.name} on ${chainNameOf(option.id)}`}</small>
                       </span>
+                      {option.verified === false && <span className="token-badge" title="On no token list. Check the contract.">Unverified</span>}
                       {contract && <span className="token-contract">{shorten(contract)}</span>}
                       {option.id === props.asset && (
                         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">

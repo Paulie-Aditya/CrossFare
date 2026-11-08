@@ -7,6 +7,8 @@ export interface AssetOption {
   evm: boolean;
   logo?: string;
   venues: string[];
+  /** False for a token found by contract that's on no token list. */
+  verified?: boolean;
 }
 
 export interface ChainOption {
@@ -42,6 +44,21 @@ export const chainLabel = (chain: string) => chains.get(chain)?.name ?? chain.to
 export const logoOf = (id: string) => assets.get(id)?.logo;
 export const chainLogoOf = (chain: string) => chains.get(chain)?.logo;
 export const isEvmAsset = (id: string) => assets.get(id)?.evm ?? false;
+export const isUnverified = (id: string) => assets.get(id)?.verified === false;
+
+/** A token found by contract joins the book, so it reads by name everywhere once picked. */
+export function addAssets(list: readonly AssetOption[]) {
+  for (const asset of list) assets.set(asset.id, asset);
+}
+
+/** The contract at the end of a token's ID, for telling apart tokens that share a ticker. Empty for a native coin. */
+export const contractOf = (id: string) => /0x[0-9a-fA-F]{40}$/.exec(id)?.[0] ?? id.split(":")[1]?.split("-").slice(1).join("-") ?? "";
+
+/** A whole contract address, which the picker looks up when the list doesn't have it. */
+export function contractQuery(query: string): string | null {
+  const trimmed = query.trim();
+  return /^0x[0-9a-fA-F]{40}$/.test(trimmed) ? trimmed : null;
+}
 
 /** A long list draws slowly, and nobody scrolls thousands of tokens: they search. */
 const SHOWN_AT_ONCE = 80;
