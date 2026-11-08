@@ -108,7 +108,8 @@ sequenceDiagram
 | Endpoint | Price | Purpose |
 | --- | --- | --- |
 | `GET /.well-known/x402` | Free | Endpoints, prices, payment details, Arkiv writer |
-| `GET /v1/assets` | Free | Every token SwapKit lists, with logos and chains, loaded from its public lists at startup and refreshed daily |
+| `GET /v1/assets` | Free | Every token SwapKit or Uniswap's default list carries, plus each chain's native coin, with logos and chains. Loaded at startup and refreshed daily |
+| `GET /v1/tokens/:address?chain=` | Free | Any ERC-20 by contract on a chain Uniswap trades on, or on all of them without `chain`. A token on no list is read from the chain and marked `verified: false` |
 | `POST /v1/quote` | 0.01 USDC | Ranked routes from every venue that supports the pair |
 | `POST /v1/swap` | Free for now | Prepare one quote for execution. Needs the `swapToken` from its quote response |
 | `POST /v1/swaps/:id/tx` | Free | Report the broadcast transaction hash |
@@ -118,6 +119,8 @@ sequenceDiagram
 | `POST /demo/quote`, `POST /demo/swap` | Free, capped | The same calls, with any fee paid by a testnet account so visitors to the UI need no Hedera wallet |
 
 Prices are placeholders, settled in testnet USDC. Set `SWAP_PRICE_USDC` to charge for `POST /v1/swap` as well. Quote IDs are public on Arkiv, so the swap call requires a private token that only the quote's caller receives. Payments and Arkiv use testnets. Swaps run on mainnet because Uniswap and SwapKit need real liquidity. Sender and receiving addresses are checked for their chain, screened through SwapKit when a swap is requested, and never published on Arkiv. Without the sending wallet connected, quotes use SwapKit's flexible deposit mode and skip its balance check, so the deposit can come from any wallet or exchange. The address given is then only where refunds go.
+
+**Any EVM token.** Uniswap quotes on all 21 chains its Trading API supports. A quote can name a token by contract, as `base:0x…`, the way a DEX takes a pasted address. A listed token is quoted under its own ID; a token on no list is read from the chain, quoted on Uniswap only (same chain) and the response carries an `unlisted_token` warning, because anyone can deploy a token with any name.
 
 **VIP keys.** A service that makes many calls can skip x402 with a VIP key: it signs each request with an HMAC instead of paying, and its calls are rate-limited, counted for billing and published on Arkiv under the key's label. See [`docs/vip.md`](docs/vip.md).
 

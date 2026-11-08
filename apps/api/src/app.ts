@@ -20,7 +20,13 @@ import {
   describeSwap,
   withUsdValues,
   type Deposit,
+  contractRef,
+  evmChainByCode,
+  findAssetByContract,
+  UNISWAP_CHAINS,
+  type Asset,
 } from "@crossfare/core";
+import type { TokenLookup } from "./token-lookup.ts";
 import {
   PAYMENT_NETWORK,
   createPaymentGuard,
@@ -74,6 +80,8 @@ export interface AppDeps {
   onError?: (context: string, error: unknown) => void;
   /** Callers with a key who skip x402. Defaults to the keys in the store. */
   vip?: VipGate;
+  /** Finds tokens by contract, reading unlisted ones from the chain. Without it only listed tokens resolve. */
+  tokens?: TokenLookup;
 }
 
 /** Bounds what one paid quote can make Crossfare write to Arkiv through re-quotes. */
@@ -120,6 +128,19 @@ function parseQuoteRequest(input: unknown): { request: QuoteRequest } | { status
       ...(body?.refundAddress ? { refundAddress: body.refundAddress } : {}),
       ...(body?.flexibleDeposit === true ? { flexibleDeposit: true } : {}),
     },
+  };
+}
+
+function publicAsset(asset: Asset) {
+  return {
+    id: asset.id,
+    chain: asset.chain,
+    symbol: asset.symbol,
+    name: asset.name ?? displaySymbol(asset.symbol),
+    decimals: asset.decimals,
+    evm: asset.evmChainId !== undefined,
+    ...(asset.logo ? { logo: asset.logo } : {}),
+    venues: [...(asset.uniswap ? [UNISWAP_VENUE] : []), ...(asset.swapkit ? [SWAPKIT_VENUE] : [])],
   };
 }
 
@@ -307,25 +328,45 @@ export function createApp(deps: AppDeps): Hono {
   // Thousands of tokens, so it's compressed and cacheable.
   app.get("/v1/assets", compress(), (c) => {
     c.header("cache-control", "public, max-age=3600");
-    return c.json({
-      chains: listChains(),
-      assets: listAssets().map((asset) => ({
-        id: asset.id,
-        chain: asset.chain,
-        symbol: asset.symbol,
-        name: asset.name ?? displaySymbol(asset.symbol),
-        decimals: asset.decimals,
-        evm: asset.evmChainId !== undefined,
-        ...(asset.logo ? { logo: asset.logo } : {}),
-        venues: [...(asset.uniswap ? [UNISWAP_VENUE] : []), ...(asset.swapkit ? [SWAPKIT_VENUE] : [])],
-      })),
-    });
+    return c.json({ chains: listChains(), assets: listAssets().map(publicAsset) });
   });
+
+  const findToken = (chainId: number, address: string) =>
+    deps.tokens ? deps.tokens.find(chainId, address) : Promise.resolve(findAssetByContract(chainId, address) ?? null);
+
+  // Free, like the asset list: it's how a picker finds a pasted contract.
+  app.get("/v1/tokens/:address", async (c) => {
+    const address = c.req.param("address");
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return c.json({ error: "address must be a 0x contract address" }, 400);
+    const chain = c.req.query("chain");
+    const chains = chain ? [evmChainByCode(chain)].filter((entry) => entry !== undefined) : UNISWAP_CHAINS;
+    if (chains.length === 0) return c.json({ error: `Uniswap doesn't trade on ${chain}` }, 400);
+    const found = await Promise.all(chains.map((entry) => findToken(entry.chainId, address)));
+    return c.json({ tokens: found.flatMap((asset) => (asset ? [{ ...publicAsset(asset), verified: !asset.unlisted }] : [])) });
+  });
+
+  /** Turns `chain:0x…` into the token's ID, reading an unlisted token from the chain. Other IDs pass through. */
+  async function canonicalAsset(id: unknown): Promise<unknown> {
+    if (typeof id !== "string") return id;
+    const ref = contractRef(id);
+    if (!ref) return id;
+    return (await findToken(ref.chainId, ref.address))?.id ?? id;
+  }
+
+  async function withCanonicalAssets(input: unknown): Promise<unknown> {
+    const body = input as { from?: { asset?: unknown }; to?: { asset?: unknown } } | null;
+    if (!body?.from || !body.to) return input;
+    return {
+      ...body,
+      from: { ...body.from, asset: await canonicalAsset(body.from.asset) },
+      to: { ...body.to, asset: await canonicalAsset(body.to.asset) },
+    };
+  }
 
   app.post("/v1/quote", async (c) => {
     // The raw body is what a VIP caller signs.
     const rawBody = await c.req.text();
-    const parsed = parseQuoteRequest(parseJson(rawBody));
+    const parsed = parseQuoteRequest(await withCanonicalAssets(parseJson(rawBody)));
     if (!("request" in parsed)) return c.json({ error: parsed.error }, parsed.status);
     const { request } = parsed;
 
@@ -348,7 +389,13 @@ export function createApp(deps: AppDeps): Hono {
         const recorded = await Promise.all(
           rankRoutes(routes).map((route) => recordRoute(route, request, requestId, payer, swapToken)),
         );
-        return { status: 200, body: { requestId, swapToken, routes: recorded }, usedBy: requestId };
+        const unlisted = [request.from.asset, request.to.asset].filter((id) => getAsset(id).unlisted);
+        const warnings = unlisted.map((asset) => ({ code: "unlisted_token", asset }));
+        return {
+          status: 200,
+          body: { requestId, swapToken, from: request.from.asset, to: request.to.asset, ...(warnings.length ? { warnings } : {}), routes: recorded },
+          usedBy: requestId,
+        };
       },
     );
     return respond(result);

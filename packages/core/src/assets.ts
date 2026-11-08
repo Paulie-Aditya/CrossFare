@@ -23,6 +23,8 @@ export interface Asset {
   evmChainId?: number;
   name?: string;
   logo?: string;
+  /** Pasted by contract and on no token list, so callers should be warned. */
+  unlisted?: true;
 }
 
 export interface Chain {
@@ -90,7 +92,20 @@ const withLogo = (asset: Asset): Asset => ({
 });
 
 let assets: readonly Asset[] = BUILT_IN.map(withLogo);
-let byId = new Map(assets.map((asset) => [asset.id, asset]));
+/** Tokens someone pasted by contract. They resolve, but aren't listed. */
+let unlisted = new Map<AssetId, Asset>();
+let byId = new Map<AssetId, Asset>();
+let byContract = new Map<string, Asset>();
+
+const contractKey = (chainId: number, address: string) => `${chainId}:${address.toLowerCase()}`;
+
+function index() {
+  // Listed tokens go last, so they win a contract an unlisted one also names.
+  const all = [...unlisted.values(), ...assets];
+  byId = new Map(all.map((asset) => [asset.id, asset]));
+  byContract = new Map(all.flatMap((asset) => (asset.uniswap ? [[contractKey(asset.uniswap.chainId, asset.uniswap.address), asset]] : [])));
+}
+index();
 
 export function parseAssetId(id: string): { chain: string; symbol: string } {
   const match = /^([a-z0-9]+):([^\s:]+)$/.exec(id);
@@ -111,7 +126,35 @@ export const listBuiltInAssets = (): readonly Asset[] => BUILT_IN;
 export function registerAssets(catalog: readonly Asset[]): void {
   const ids = new Set(catalog.map((asset) => asset.id));
   assets = [...catalog, ...BUILT_IN.filter((asset) => !ids.has(asset.id)).map(withLogo)];
-  byId = new Map(assets.map((asset) => [asset.id, asset]));
+  index();
+}
+
+export function addUnlistedAssets(list: readonly Asset[]): void {
+  for (const asset of list) unlisted.set(asset.id, { ...asset, unlisted: true });
+  index();
+}
+
+/** For tests. */
+export function forgetUnlistedAssets(): void {
+  unlisted = new Map();
+  index();
+}
+
+const EVM_CONTRACT = /^0x[0-9a-fA-F]{40}$/;
+
+/** `chain:0x…` names a token by contract, the way a DEX takes a pasted address. Only on Uniswap's chains. */
+export function contractRef(id: string): { chainId: number; address: string } | null {
+  const [chain, address] = id.split(":");
+  const evm = chain ? evmChainByCode(chain) : undefined;
+  return evm && address && EVM_CONTRACT.test(address) && id.split(":").length === 2 ? { chainId: evm.chainId, address } : null;
+}
+
+export const findAssetByContract = (chainId: number, address: string): Asset | undefined => byContract.get(contractKey(chainId, address));
+
+/** The ID of the token a `chain:0x…` reference names, if one is known. Any other ID comes back as given. */
+export function resolveAssetId(id: string): AssetId {
+  const ref = contractRef(id);
+  return (ref && findAssetByContract(ref.chainId, ref.address)?.id) ?? id;
 }
 
 /** Numeric chain IDs that aren't EVM. */

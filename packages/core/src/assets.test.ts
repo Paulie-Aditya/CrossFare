@@ -1,5 +1,18 @@
-import { describe, expect, it } from "vitest";
-import { displaySymbol, getAsset, isValidAddress, listAssets, parseAssetId, toBaseUnits } from "./assets.ts";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  addUnlistedAssets,
+  contractRef,
+  displaySymbol,
+  findAssetByContract,
+  forgetUnlistedAssets,
+  getAsset,
+  isValidAddress,
+  listAssets,
+  parseAssetId,
+  registerAssets,
+  resolveAssetId,
+  toBaseUnits,
+} from "./assets.ts";
 
 describe("parseAssetId", () => {
   it("splits a chain:symbol id", () => {
@@ -111,3 +124,56 @@ describe("display details", () => {
   });
 });
 
+
+describe("tokens by contract", () => {
+  const PASTED = "0x9999999999999999999999999999999999999999";
+  const unlisted = {
+    id: `base:pasted-${PASTED}`,
+    chain: "base",
+    symbol: "PASTED",
+    decimals: 18,
+    evmChainId: 8453,
+    uniswap: { chainId: 8453, address: PASTED },
+    swapkitChain: "8453",
+    unlisted: true as const,
+  };
+  afterEach(() => {
+    forgetUnlistedAssets();
+    registerAssets([]);
+  });
+
+  it("turns chain:contract into the listed token's ID, in any letter case", () => {
+    expect(resolveAssetId("base:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913")).toBe("base:usdc");
+    expect(findAssetByContract(8453, "0x833589FCD6EDB6E08F4C7C32D4F71B54BDA02913")?.id).toBe("base:usdc");
+  });
+
+  it("leaves an ID alone when no token has that contract", () => {
+    expect(resolveAssetId(`base:${PASTED}`)).toBe(`base:${PASTED}`);
+    expect(resolveAssetId("base:usdc")).toBe("base:usdc");
+  });
+
+  it("recognises the chain:contract form only on chains Uniswap trades on", () => {
+    expect(contractRef(`arb:${PASTED}`)).toEqual({ chainId: 42161, address: PASTED });
+    expect(contractRef(`btc:${PASTED}`)).toBeNull();
+    expect(contractRef("base:usdc")).toBeNull();
+  });
+
+  it("resolves an unlisted token without putting it in the public list", () => {
+    addUnlistedAssets([unlisted]);
+    expect(getAsset(unlisted.id).unlisted).toBe(true);
+    expect(resolveAssetId(`base:${PASTED}`)).toBe(unlisted.id);
+    expect(listAssets().some((asset) => asset.id === unlisted.id)).toBe(false);
+  });
+
+  it("keeps unlisted tokens through a catalog refresh, since stored swaps name them", () => {
+    addUnlistedAssets([unlisted]);
+    registerAssets([]);
+    expect(getAsset(unlisted.id).symbol).toBe("PASTED");
+  });
+
+  it("prefers a listed token if a refresh adds one with the same contract", () => {
+    addUnlistedAssets([unlisted]);
+    registerAssets([{ ...unlisted, id: `base:real-${PASTED}`, symbol: "REAL", unlisted: undefined } as never]);
+    expect(resolveAssetId(`base:${PASTED}`)).toBe(`base:real-${PASTED}`);
+  });
+});

@@ -1,10 +1,22 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { HTTPFacilitatorClient } from "@x402/core/server";
-import { createPublicClient, erc20Abi, fallback, http, type Address, type Hash, type PublicClient } from "viem";
+import {
+  ContractFunctionExecutionError,
+  createPublicClient,
+  erc20Abi,
+  erc20Abi_bytes32,
+  fallback,
+  hexToString,
+  http,
+  type Address,
+  type Hash,
+  type PublicClient,
+} from "viem";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  addUnlistedAssets,
   createSwapKitScreen,
   createSwapKitVenue,
   createUniswapVenue,
@@ -26,6 +38,7 @@ import { mountDemo } from "./demo.ts";
 import { createPaidPost } from "./demo-payer.ts";
 import { connectHcs, createHcsAudit } from "./hcs-audit.ts";
 import { createStore } from "./store.ts";
+import { createTokenLookup, type ReadToken } from "./token-lookup.ts";
 import { createX402Gateway } from "./x402-gateway.ts";
 
 const config = loadConfig(process.env);
@@ -86,6 +99,36 @@ const getReceipt: GetReceipt = async (chainId, hash) => {
   return reader.getTransactionReceipt({ hash: hash as Hash }).catch(() => null);
 };
 
+/** A revert or empty return means the contract isn't an ERC-20. Anything else is the RPC failing. */
+const notAToken = (error: unknown) => {
+  if (error instanceof ContractFunctionExecutionError) return null;
+  throw error;
+};
+
+/** Older tokens such as MKR return their symbol and name as bytes32. */
+async function readText(reader: PublicClient, address: Address, functionName: "symbol" | "name"): Promise<string> {
+  const text = await reader.readContract({ address, abi: erc20Abi, functionName }).catch(notAToken);
+  if (text !== null) return text;
+  const raw = await reader.readContract({ address, abi: erc20Abi_bytes32, functionName }).catch(notAToken);
+  return raw ? hexToString(raw, { size: 32 }).replace(/\u0000+$/, "") : "";
+}
+
+const readToken: ReadToken = async (chainId, address) => {
+  const reader = readers.get(chainId);
+  if (!reader) return null;
+  const contract = address as Address;
+  const code = await reader.getCode({ address: contract });
+  if (!code || code === "0x") return null;
+  const decimals = await reader.readContract({ address: contract, abi: erc20Abi, functionName: "decimals" }).catch(notAToken);
+  if (decimals === null) return null;
+  const [symbol, name] = await Promise.all([readText(reader, contract, "symbol"), readText(reader, contract, "name")]);
+  return { symbol, name, decimals };
+};
+
+const store = createStore(config.databasePath);
+// Swaps can name a token someone pasted, so those resolve before the server answers.
+addUnlistedAssets(store.listUnlistedAssets());
+
 const arkiv = connectArkiv({ privateKey: config.arkivPrivateKey, accessKey: config.arkivAccessKey });
 
 const app = createApp({
@@ -93,7 +136,8 @@ const app = createApp({
     createUniswapVenue({ apiKey: config.uniswapApiKey, getReceipt }),
     createSwapKitVenue({ apiKey: config.swapkitApiKey }),
   ],
-  store: createStore(config.databasePath),
+  store,
+  tokens: createTokenLookup({ readToken, store }),
   gateway: await createX402Gateway({
     facilitator: new HTTPFacilitatorClient({ url: config.facilitatorUrl }),
     payTo: config.payToAccount,

@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import type { SwapStatus } from "@crossfare/core";
+import type { Asset, SwapStatus } from "@crossfare/core";
 
 export interface SettledPayment {
   transactionId: string;
@@ -98,6 +98,9 @@ export interface Store {
   countVipUsage(keyId: string, since: string): number;
   /** Calls per key and endpoint from since (inclusive) to until (exclusive). */
   vipUsageSummary(since: string, until: string): VipUsageLine[];
+  /** The first save wins, so a stored swap's decimals never change under it. */
+  saveUnlistedAsset(asset: Asset): void;
+  listUnlistedAssets(): Asset[];
 }
 
 const SCHEMA = `
@@ -149,6 +152,10 @@ const SCHEMA = `
     at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS vip_usage_key_at ON vip_usage (key_id, at);
+  CREATE TABLE IF NOT EXISTS unlisted_assets (
+    id TEXT PRIMARY KEY,
+    asset TEXT NOT NULL
+  );
 `;
 
 type Row = Record<string, string | null>;
@@ -298,6 +305,14 @@ export function createStore(path: string): Store {
         JSON.stringify(update.depositDetails ?? current.depositDetails ?? {}),
         id,
       );
+    },
+
+    saveUnlistedAsset(asset) {
+      db.prepare("INSERT OR IGNORE INTO unlisted_assets (id, asset) VALUES (?, ?)").run(asset.id, JSON.stringify(asset));
+    },
+
+    listUnlistedAssets() {
+      return (db.prepare("SELECT asset FROM unlisted_assets").all() as { asset: string }[]).map((row) => JSON.parse(row.asset) as Asset);
     },
 
     saveVipKey(key) {

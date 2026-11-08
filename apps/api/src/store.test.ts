@@ -147,3 +147,29 @@ describe("VIP keys", () => {
     ]);
   });
 });
+
+describe("unlisted tokens", () => {
+  const token = {
+    id: "base:pasted-0x9999999999999999999999999999999999999999",
+    chain: "base",
+    symbol: "PASTED",
+    decimals: 18,
+    evmChainId: 8453,
+    uniswap: { chainId: 8453, address: "0x9999999999999999999999999999999999999999" },
+    swapkitChain: "8453",
+    unlisted: true as const,
+  };
+
+  it("are kept so stored swaps that name them still resolve after a restart", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "crossfare-")), "store.db");
+    createStore(path).saveUnlistedAsset(token);
+    expect(createStore(path).listUnlistedAssets()).toEqual([token]);
+  });
+
+  it("are saved once, however often they're looked up", () => {
+    const store = createStore(":memory:");
+    store.saveUnlistedAsset(token);
+    store.saveUnlistedAsset({ ...token, symbol: "CHANGED" });
+    expect(store.listUnlistedAssets()).toEqual([token]);
+  });
+});
