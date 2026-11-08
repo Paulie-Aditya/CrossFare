@@ -26,6 +26,7 @@ function route(): Route {
     fees: { networkUsd: "0.01" },
     etaSeconds: 30,
     validUntil: "2026-11-08T10:01:00.000Z",
+    venueData: null,
   };
 }
 

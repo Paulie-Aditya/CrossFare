@@ -27,7 +27,7 @@ beforeEach(() => {
 const gate = () => createVipGate({ store, now: () => currentTime });
 
 function signed(overrides: Partial<VipRequest> = {}, key = apiKey): VipRequest {
-  const base = { method: "POST", path: "/v1/quote", body: '{"amount":"5"}', timestamp: seconds(currentTime), ...overrides };
+  const base = { method: "POST", path: "/v1/quote", body: '{"amount":"5"}', ...overrides, timestamp: overrides.timestamp ?? seconds(currentTime) };
   return {
     authorization: `Bearer ${key}`,
     signature: signVipRequest(key, base),
