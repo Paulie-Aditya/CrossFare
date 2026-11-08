@@ -140,10 +140,13 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
       const from = getAsset(request.from.asset);
       const to = getAsset(request.to.asset);
       const exactIn = request.mode === "exact_in";
+      if (!from.swapkit || !to.swapkit) return [];
+      const sellAsset = from.swapkit;
+      const buyAsset = to.swapkit;
 
       const response = await call("/v3/quote", {
-        sellAsset: from.swapkit,
-        buyAsset: to.swapkit,
+        sellAsset,
+        buyAsset,
         ...(exactIn ? { sellAmount: request.from.amount } : { buyAmount: request.from.amount }),
         ...(request.indicative
           ? {}
@@ -164,7 +167,7 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
       const validUntil = new Date(now().getTime() + QUOTE_TTL_MS).toISOString();
 
       return (routes ?? []).map((route) => {
-        const usd = usdValues(route, from.swapkit, request.from.amount, to.swapkit);
+        const usd = usdValues(route, sellAsset, request.from.amount, buyAsset);
         return {
         venue: VENUE,
         provider: route.providers.join("+").toLowerCase(),

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { registerAssets } from "../assets.ts";
+import { nativeAssets } from "./uniswap-catalog.ts";
 import { createSwapKitScreen, createSwapKitVenue, mapTrackStatus } from "./swapkit.ts";
 import { VenueError, type FetchLike, type QuoteRequest } from "./types.ts";
 
@@ -99,6 +101,17 @@ describe("swapkit quote", () => {
       "thorchain_streaming",
       "chainflip",
     ]);
+  });
+
+  it("doesn't ask SwapKit about a token only Uniswap lists", async () => {
+    registerAssets(nativeAssets());
+    try {
+      const fetch = fakeFetch({});
+      expect(await venue(fetch).quote({ ...request, to: { asset: "zora:eth", address: AGENT } })).toEqual([]);
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      registerAssets([]);
+    }
   });
 
   it("returns no routes on noRoutesFound", async () => {

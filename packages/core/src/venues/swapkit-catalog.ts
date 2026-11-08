@@ -43,7 +43,7 @@ export function parseCatalog(lists: readonly (readonly CatalogToken[])[]): Asset
     const native = Number(!left.token.address) - Number(!right.token.address);
     return native !== 0 ? -native : right.listedBy - left.listedBy;
   });
-  const builtIn = new Map(listBuiltInAssets().map((asset) => [asset.swapkit.toLowerCase(), asset]));
+  const builtIn = new Map(listBuiltInAssets().map((asset) => [(asset.swapkit ?? "").toLowerCase(), asset]));
   return ranked.map(({ token }) => catalogAsset(token, builtIn.get(token.identifier.toLowerCase())));
 }
 

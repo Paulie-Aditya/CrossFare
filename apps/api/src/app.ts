@@ -317,7 +317,7 @@ export function createApp(deps: AppDeps): Hono {
         decimals: asset.decimals,
         evm: asset.evmChainId !== undefined,
         ...(asset.logo ? { logo: asset.logo } : {}),
-        venues: [...(asset.uniswap ? [UNISWAP_VENUE] : []), SWAPKIT_VENUE],
+        venues: [...(asset.uniswap ? [UNISWAP_VENUE] : []), ...(asset.swapkit ? [SWAPKIT_VENUE] : [])],
       })),
     });
   });

@@ -9,6 +9,10 @@ import {
   createSwapKitVenue,
   createUniswapVenue,
   fetchSwapKitCatalog,
+  fetchUniswapTokenList,
+  listAssets,
+  mergeCatalogs,
+  nativeAssets,
   registerAssets,
   UNISWAP_CHAINS,
   type Asset,
@@ -34,11 +38,20 @@ async function loadCatalog() {
   const cached = await readFile(catalogCache, "utf8").catch(() => null);
   if (cached) registerAssets(JSON.parse(cached) as Asset[]);
   const refresh = async () => {
-    const catalog = await fetchSwapKitCatalog({ apiKey: config.swapkitApiKey });
-    if (catalog.length === 0) return;
+    const [swapkit, uniswap] = await Promise.allSettled([
+      fetchSwapKitCatalog({ apiKey: config.swapkitApiKey }),
+      fetchUniswapTokenList(),
+    ]);
+    if (swapkit.status === "rejected") throw swapkit.reason;
+    if (swapkit.value.length === 0) return;
+    if (uniswap.status === "rejected") console.error("Uniswap token list failed", uniswap.reason);
+    // Stored swaps can name a token only Uniswap lists, so a failed list keeps the last one's.
+    const uniswapOnly = uniswap.status === "fulfilled" ? uniswap.value : listAssets().filter((asset) => !asset.swapkit);
+    // SwapKit's entries go first, so a token both list keeps the entry both venues can route.
+    const catalog = mergeCatalogs(swapkit.value, uniswapOnly, nativeAssets());
     registerAssets(catalog);
     await writeFile(catalogCache, JSON.stringify(catalog));
-    console.log(`SwapKit catalog: ${catalog.length} tokens`);
+    console.log(`Token catalog: ${catalog.length} tokens (${swapkit.value.length} from SwapKit)`);
   };
   // Without a cached list, wait for the first one. With one, refresh behind it.
   const first = refresh().catch((error: unknown) => console.error("SwapKit catalog failed", error));

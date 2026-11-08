@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { VenueError, type Route, type Venue } from "@crossfare/core";
+import { nativeAssets, registerAssets, VenueError, type Route, type Venue } from "@crossfare/core";
 import { createApp, type AppDeps } from "./app.ts";
 import type { AuditLog, PaymentGateway } from "./payment.ts";
 import type { QuotePublisher } from "./publisher.ts";
@@ -923,6 +923,23 @@ describe("GET /v1/assets", () => {
     });
     expect(body.assets.find((asset: { id: string }) => asset.id === "btc:btc").evm).toBe(false);
     expect(body.chains.find((chain: { id: string }) => chain.id === "eth")).toMatchObject({ name: "Ethereum" });
+  });
+
+  it("offers only Uniswap for a token only Uniswap lists, and says how to reach each EVM chain", async () => {
+    registerAssets(nativeAssets());
+    try {
+      const body = (await (await app([]).request("/v1/assets")).json()) as any;
+      expect(body.assets.find((asset: { id: string }) => asset.id === "zora:eth")).toMatchObject({ venues: ["uniswap"], evm: true });
+      expect(body.chains.find((chain: { id: string }) => chain.id === "zora")).toEqual({
+        id: "zora",
+        name: "Zora",
+        evmChainId: 7777777,
+        explorer: "https://explorer.zora.energy",
+      });
+      expect(body.chains.find((chain: { id: string }) => chain.id === "btc")).not.toHaveProperty("evmChainId");
+    } finally {
+      registerAssets([]);
+    }
   });
 
   it("names a route that needs a wallet Crossfare can't connect, at no charge", async () => {

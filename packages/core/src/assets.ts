@@ -1,4 +1,4 @@
-import { evmChainById } from "./evm-chains.ts";
+import { evmChainByCode, evmChainById } from "./evm-chains.ts";
 
 /** Crossfare asset IDs have the form `chain:symbol`, for example `base:usdc`. */
 export type AssetId = string;
@@ -15,8 +15,8 @@ export interface Asset {
   decimals: number;
   /** Present only where Uniswap can trade the asset. */
   uniswap?: UniswapToken;
-  /** SwapKit identifier: `CHAIN.ASSET` or `CHAIN.ASSET-contract`. */
-  swapkit: string;
+  /** SwapKit identifier: `CHAIN.ASSET` or `CHAIN.ASSET-contract`. Absent for a token only Uniswap lists. */
+  swapkit?: string;
   /** The chain name SwapKit's screening endpoint expects. */
   swapkitChain: string;
   /** Set for EVM chains, including those Uniswap isn't offered on. */
@@ -29,6 +29,9 @@ export interface Chain {
   id: string;
   name: string;
   logo?: string;
+  /** Set for chains Uniswap trades on, which a wallet can sign on. */
+  evmChainId?: number;
+  explorer?: string;
 }
 
 const NATIVE_TOKEN = "0x0000000000000000000000000000000000000000";
@@ -82,7 +85,7 @@ const logoFor = (identifier: string) => `${LOGO_BASE}/${identifier.toLowerCase()
 
 const withLogo = (asset: Asset): Asset => ({
   ...asset,
-  logo: logoFor(asset.swapkit),
+  ...(asset.swapkit ? { logo: logoFor(asset.swapkit) } : {}),
   ...(asset.uniswap ? { evmChainId: asset.uniswap.chainId } : {}),
 });
 
@@ -180,7 +183,7 @@ const CHAIN_NAMES: Record<string, string> = {
   zec: "Zcash",
 };
 
-export const chainName = (chain: string) => CHAIN_NAMES[chain] ?? chain.toUpperCase();
+export const chainName = (chain: string) => CHAIN_NAMES[chain] ?? evmChainByCode(chain)?.name ?? chain.toUpperCase();
 
 /** Chains whose gas coin is ETH, so a native coin's logo would show ETH rather than the chain. */
 const CHAIN_LOGOS: Record<string, string> = {
@@ -195,13 +198,20 @@ export function listChains(): Chain[] {
   const natives = new Map<string, string>();
   for (const asset of assets) {
     counts.set(asset.chain, (counts.get(asset.chain) ?? 0) + 1);
-    if (asset.logo && !asset.swapkit.includes("-") && !natives.has(asset.chain)) natives.set(asset.chain, asset.logo);
+    const native = asset.uniswap ? asset.uniswap.address === NATIVE_TOKEN : !asset.swapkit?.includes("-");
+    if (asset.logo && native && !natives.has(asset.chain)) natives.set(asset.chain, asset.logo);
   }
   return [...counts.entries()]
     .sort((left, right) => right[1] - left[1])
     .map(([id]) => {
       const logo = CHAIN_LOGOS[id] ?? natives.get(id);
-      return { id, name: chainName(id), ...(logo ? { logo } : {}) };
+      const evm = evmChainByCode(id);
+      return {
+        id,
+        name: chainName(id),
+        ...(logo ? { logo } : {}),
+        ...(evm ? { evmChainId: evm.chainId, explorer: evm.explorer } : {}),
+      };
     });
 }
 
