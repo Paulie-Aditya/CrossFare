@@ -91,6 +91,7 @@ Live at crossfare.vercel.app, with the UI on Vercel and the API on EC2. Five rea
 * [x] Every SwapKit token in a searchable picker with logos, and deposits that differ from the quote reported rather than hidden (FR-49, FR-50). Real deposits of a different amount are untested
 * [x] Deployed: the UI on Vercel, which forwards API requests to EC2 behind nginx, with HTTPS on a temporary sslip.io name
 * [x] Real swaps on the deployed site, which were also the first real runs of the stage tracker and on-chain deposit check
+* [x] Uniswap on all 21 of its chains, and any ERC-20 by contract with an unverified warning (FR-51, FR-52), built 9 November. Checked with real quotes on Arbitrum, Unichain and an unlisted Base token; no real swap on the new chains yet
 * [ ] The MCP server (FR-2, P1), which isn't built, so packages/mcp doesn't exist
 
 ## How Crossfare is different
@@ -229,7 +230,7 @@ The [live UI](https://crossfare.vercel.app) shows this flow.
 | Deposit address and exact amount | Same, plus copy and QR | Comes from SwapKit on simple-transfer routes |
 | 10-minute lock on a fixed rate | A 30-minute order window, or SwapKit's deadline if sooner | SwapKit has no setting to shorten a provider's channel: about 72 hours on NEAR in a live check, and a flat 24 hours on Flashnet and Chainflip. The window limits what Crossfare shows and promises. A late deposit may still be processed after Crossfare shows the order as expired |
 | Confirmations, then explorer links | Three live stages, a result screen with the amount received, plus HashScan, Arkiv and explorer links | Shows what each sponsor did |
-| No wallet connection | Optional "Connect wallet" | Contract-call routes such as Uniswap and 1inch need a signature. The UI signs on Ethereum and Base, and elsewhere a route that needs a signature says so and can't be chosen |
+| No wallet connection | Optional "Connect wallet" | Contract-call routes such as Uniswap and 1inch need a signature. The UI signs on every chain Uniswap trades on (FR-51), and elsewhere a route that needs a signature says so and can't be chosen |
 
 A visitor has no Hedera account, so Crossfare's capped demo payer pays their x402 fee. That payment is real, but it doesn't show an agent paying for itself, so the demo also runs the terminal agent.
 
@@ -281,8 +282,10 @@ The demo has 37 requirements marked P0; P1 items earn sponsor extra points if ti
 | FR-46 | Execution | Status reads the deposit address on chain every 4 seconds as well as asking the provider, takes progress from SwapKit's legs, and never moves backwards. The UI shows Send deposit, Swapping and Delivered | P0 demo |
 | FR-47 | Arkiv | Records read as history: statuses are words such as Completed, with a one-line summary and no addresses. The History page lists them, with swaps and all quotes as separate views | P0 demo |
 | FR-48 | Web UI | Connecting opens a dialog listing each wallet the browser announces (EIP-6963), and a token picker replaces native selects | P0 demo |
-| FR-49 | Routing | The asset list is every token in SwapKit's public provider lists, refreshed daily, with logos, search by name, symbol or contract, and a chain filter. Any chain can be the source when the route is a plain transfer. Other routes need a signature, which the UI offers on Ethereum and Base only | P0 demo |
+| FR-49 | Routing | The asset list is every token in SwapKit's public provider lists, refreshed daily, with logos, search by name, symbol or contract, and a chain filter. Any chain can be the source when the route is a plain transfer. Other routes need a signature, which the UI offered on Ethereum and Base only until FR-51 | P0 demo |
 | FR-50 | Execution | A deposit that differs from the quote is reported, not hidden. On NEAR routes the order states the minimum (slippage below the quote when flexible). Below it the page says how much arrived, how much more is needed and when the refund is due, and doesn't expire while funds sit there. The result screen shows what was really sent and any refund | P0 demo |
+| FR-51 | Routing | Uniswap quotes on every mainnet its Trading API supports (21 on 9 November), and the agent and UI sign on all of them. The catalog adds Uniswap's default token list and each chain's native coin to SwapKit's lists. Built 9 November | P2 later |
+| FR-52 | Routing | Any ERC-20 on those chains can be named by contract, as `chain:0x…`. A token on no list is read from the chain, kept so swaps naming it resolve, quoted on Uniswap only (same chain) and flagged `unlisted_token`; the picker finds it by pasted address and marks it Unverified. Built 9 November | P2 later |
 
 ## Architecture
 

@@ -78,6 +78,8 @@ DEMO_LIMIT_PER_DAY=500
 
 The higher per-IP limit is for the UI on Vercel. Behind Vercel and Caddy the API probably sees Vercel's address rather than each visitor's, so visitors could share one limit. The daily limit is what caps spending.
 
+The API reads receipts, deposits and unlisted tokens on all 21 chains Uniswap trades on, through each chain's public RPC. Public RPCs rate-limit, so for chains you expect traffic on, add a provider's URL as `RPC_URL_<chainId>`, for example `RPC_URL_42161=` for Arbitrum. `BASE_RPC_URL` and `ETHEREUM_RPC_URL` still work.
+
 **Never put `AGENT_EVM_PRIVATE_KEY` on the server.** It signs swaps with real money, and only the agent needs it. The server uses `AGENT_HEDERA_*` to pay visitors' testnet fees, so that key must not also control real funds.
 
 ## 5. Start the service
