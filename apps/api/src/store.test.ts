@@ -109,3 +109,41 @@ describe("a database from before deposit details", () => {
   });
 });
 
+
+describe("VIP keys", () => {
+  const key = {
+    id: "vk_1",
+    label: "partner",
+    keyHash: "a".repeat(64),
+    scopes: ["quote", "swap"] as const,
+    ratePerMinute: 60,
+    monthlyQuota: null,
+    createdAt: "2026-11-08T00:00:00.000Z",
+  };
+
+  it("finds a key by its hash and never stores the key itself", () => {
+    store.saveVipKey({ ...key, scopes: [...key.scopes] });
+    expect(store.getVipKeyByHash("a".repeat(64))).toEqual({ ...key, scopes: ["quote", "swap"], revokedAt: null });
+    expect(store.getVipKeyByHash("b".repeat(64))).toBeNull();
+  });
+
+  it("revokes a key by ID and lists it as revoked", () => {
+    store.saveVipKey({ ...key, scopes: [...key.scopes] });
+    expect(store.revokeVipKey("vk_1", "2026-11-09T00:00:00.000Z")).toBe(true);
+    expect(store.revokeVipKey("vk_missing", "2026-11-09T00:00:00.000Z")).toBe(false);
+    expect(store.getVipKeyByHash("a".repeat(64))?.revokedAt).toBe("2026-11-09T00:00:00.000Z");
+    expect(store.listVipKeys()).toHaveLength(1);
+  });
+
+  it("counts a key's metered calls since a date, and sums usage per label", () => {
+    store.saveVipKey({ ...key, scopes: [...key.scopes] });
+    store.recordVipUsage({ keyId: "vk_1", endpoint: "POST /v1/quote", usedBy: "r_1", at: "2026-10-31T23:59:00.000Z" });
+    store.recordVipUsage({ keyId: "vk_1", endpoint: "POST /v1/quote", usedBy: "r_2", at: "2026-11-01T00:00:00.000Z" });
+    store.recordVipUsage({ keyId: "vk_1", endpoint: "POST /v1/swap", usedBy: "s_1", at: "2026-11-02T00:00:00.000Z" });
+    expect(store.countVipUsage("vk_1", "2026-11-01T00:00:00.000Z")).toBe(2);
+    expect(store.vipUsageSummary("2026-11-01T00:00:00.000Z", "2026-12-01T00:00:00.000Z")).toEqual([
+      { keyId: "vk_1", label: "partner", endpoint: "POST /v1/quote", calls: 1 },
+      { keyId: "vk_1", label: "partner", endpoint: "POST /v1/swap", calls: 1 },
+    ]);
+  });
+});

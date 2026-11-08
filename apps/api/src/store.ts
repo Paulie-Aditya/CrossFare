@@ -41,6 +41,37 @@ export interface DepositDetails {
   partialRefund?: boolean;
 }
 
+export type VipScope = "quote" | "swap";
+
+/** A caller that skips x402. Only the key's SHA-256 is stored. */
+export interface VipKeyRecord {
+  id: string;
+  /** Public: it becomes the payer on Arkiv, as vip:<label>. */
+  label: string;
+  keyHash: string;
+  scopes: VipScope[];
+  /** Null means no limit. */
+  ratePerMinute: number | null;
+  /** Metered calls per calendar month (UTC). Null means no limit. */
+  monthlyQuota: number | null;
+  createdAt: string;
+  revokedAt?: string | null;
+}
+
+export interface VipUsage {
+  keyId: string;
+  endpoint: string;
+  usedBy: string;
+  at: string;
+}
+
+export interface VipUsageLine {
+  keyId: string;
+  label: string;
+  endpoint: string;
+  calls: number;
+}
+
 export type SwapUpdate = Partial<Pick<StoredSwap, "status" | "txHashes" | "amountReceived" | "depositDetails">>;
 
 export interface Store {
@@ -58,6 +89,15 @@ export interface Store {
   getSwap(id: string): StoredSwap | null;
   getSwapByQuote(quoteId: string): StoredSwap | null;
   updateSwap(id: string, update: SwapUpdate): void;
+  saveVipKey(key: VipKeyRecord): void;
+  getVipKeyByHash(keyHash: string): VipKeyRecord | null;
+  listVipKeys(): VipKeyRecord[];
+  /** Returns false when no key has this ID. */
+  revokeVipKey(id: string, at: string): boolean;
+  recordVipUsage(usage: VipUsage): void;
+  countVipUsage(keyId: string, since: string): number;
+  /** Calls per key and endpoint from since (inclusive) to until (exclusive). */
+  vipUsageSummary(since: string, until: string): VipUsageLine[];
 }
 
 const SCHEMA = `
@@ -91,6 +131,24 @@ const SCHEMA = `
     amount_received TEXT,
     deposit_details TEXT NOT NULL DEFAULT '{}'
   );
+  CREATE TABLE IF NOT EXISTS vip_keys (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    scopes TEXT NOT NULL,
+    rate_per_minute INTEGER,
+    monthly_quota INTEGER,
+    created_at TEXT NOT NULL,
+    revoked_at TEXT
+  );
+  CREATE TABLE IF NOT EXISTS vip_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_id TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    used_by TEXT NOT NULL,
+    at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS vip_usage_key_at ON vip_usage (key_id, at);
 `;
 
 type Row = Record<string, string | null>;
@@ -107,6 +165,20 @@ function toSwap(row: Row | undefined): StoredSwap | null {
     txHashes: JSON.parse(row.tx_hashes!) as string[],
     amountReceived: row.amount_received ?? null,
     depositDetails: JSON.parse(row.deposit_details ?? "{}") as DepositDetails,
+  };
+}
+
+function toVipKey(row: Record<string, string | number | null> | undefined): VipKeyRecord | null {
+  if (!row) return null;
+  return {
+    id: row.id as string,
+    label: row.label as string,
+    keyHash: row.key_hash as string,
+    scopes: JSON.parse(row.scopes as string) as VipScope[],
+    ratePerMinute: (row.rate_per_minute as number | null) ?? null,
+    monthlyQuota: (row.monthly_quota as number | null) ?? null,
+    createdAt: row.created_at as string,
+    revokedAt: (row.revoked_at as string | null) ?? null,
   };
 }
 
@@ -226,6 +298,57 @@ export function createStore(path: string): Store {
         JSON.stringify(update.depositDetails ?? current.depositDetails ?? {}),
         id,
       );
+    },
+
+    saveVipKey(key) {
+      db.prepare(
+        `INSERT INTO vip_keys (id, label, key_hash, scopes, rate_per_minute, monthly_quota, created_at, revoked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(key.id, key.label, key.keyHash, JSON.stringify(key.scopes), key.ratePerMinute, key.monthlyQuota, key.createdAt, key.revokedAt ?? null);
+    },
+
+    getVipKeyByHash(keyHash) {
+      return toVipKey(db.prepare("SELECT * FROM vip_keys WHERE key_hash = ?").get(keyHash) as never);
+    },
+
+    listVipKeys() {
+      return (db.prepare("SELECT * FROM vip_keys ORDER BY created_at").all() as never[]).map((row) => toVipKey(row)!);
+    },
+
+    revokeVipKey(id, at) {
+      const known = db.prepare("SELECT id FROM vip_keys WHERE id = ?").get(id);
+      if (!known) return false;
+      db.prepare("UPDATE vip_keys SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?").run(at, id);
+      return true;
+    },
+
+    recordVipUsage(usage) {
+      db.prepare("INSERT INTO vip_usage (key_id, endpoint, used_by, at) VALUES (?, ?, ?, ?)").run(
+        usage.keyId,
+        usage.endpoint,
+        usage.usedBy,
+        usage.at,
+      );
+    },
+
+    countVipUsage(keyId, since) {
+      const row = db.prepare("SELECT COUNT(*) AS total FROM vip_usage WHERE key_id = ? AND at >= ?").get(keyId, since) as {
+        total: number;
+      };
+      return row.total;
+    },
+
+    vipUsageSummary(since, until) {
+      return db
+        .prepare(
+          `SELECT u.key_id AS keyId, k.label AS label, u.endpoint AS endpoint, COUNT(*) AS calls
+           FROM vip_usage u JOIN vip_keys k ON k.id = u.key_id
+           WHERE u.at >= ? AND u.at < ?
+           GROUP BY u.key_id, u.endpoint
+           ORDER BY k.label, u.endpoint`,
+        )
+        .all(since, until)
+        .map((row) => ({ ...(row as unknown as VipUsageLine) }));
     },
   };
 }

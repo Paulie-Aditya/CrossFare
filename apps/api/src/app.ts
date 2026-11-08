@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { compress } from "hono/compress";
 import {
   fromBaseUnits,
@@ -31,7 +31,8 @@ import {
   type PricedEndpoint,
 } from "./payment.ts";
 import type { PublicQuote, QuotePublisher } from "./publisher.ts";
-import type { Store } from "./store.ts";
+import type { Store, VipScope } from "./store.ts";
+import { createVipGate, type VipGate } from "./vip.ts";
 
 export const QUOTE_ENDPOINT: PricedEndpoint = {
   key: "POST /v1/quote",
@@ -71,6 +72,8 @@ export interface AppDeps {
   /** How long a quote response waits for Arkiv before flagging the write as pending. */
   publishTimeoutMs?: number;
   onError?: (context: string, error: unknown) => void;
+  /** Callers with a key who skip x402. Defaults to the keys in the store. */
+  vip?: VipGate;
 }
 
 /** Bounds what one paid quote can make Crossfare write to Arkiv through re-quotes. */
@@ -161,6 +164,14 @@ function scalePrice(known: PriceAnswer, amount: string): PriceAnswer {
 
 const TERMINAL: readonly SwapStatus[] = ["completed", "refunded", "failed", "expired"];
 
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 const toSeconds = (iso: string) => Math.floor(new Date(iso).getTime() / 1000);
 
 const digest = (value: string) => createHash("sha256").update(value).digest();
@@ -187,6 +198,7 @@ export function createApp(deps: AppDeps): Hono {
   const guard = createPaymentGuard({ gateway: deps.gateway, store, audit: deps.audit, onError });
   const swapEndpoint: PricedEndpoint = { ...SWAP_ENDPOINT, priceUsd: deps.swapPriceUsd || SWAP_ENDPOINT.priceUsd };
   const swapIsFree = !(Number(swapEndpoint.priceUsd) > 0);
+  const vip = deps.vip ?? createVipGate({ store, now });
   const app = new Hono();
 
   const paymentHeader = (headers: { header(name: string): string | undefined }) =>
@@ -197,6 +209,51 @@ export function createApp(deps: AppDeps): Hono {
       status: result.status,
       headers: { "content-type": "application/json", ...result.headers },
     });
+
+  /** Runs the handler with no payment. Failures answer as they do on the paid path. */
+  async function runUnpaid(endpoint: PricedEndpoint, handler: (payer: string) => Promise<HandlerResult>, payer: string): Promise<HandlerResult> {
+    try {
+      return await handler(payer);
+    } catch (error) {
+      onError(`${endpoint.key} handler failed`, error);
+      return { status: 502, body: { error: "upstream_failed" } };
+    }
+  }
+
+  /**
+   * A VIP credential is checked first (FR-29): a valid one skips x402 and is metered on
+   * success; a bad one gets the normal 402 with the reason. Anyone else pays as usual.
+   */
+  async function charged(
+    c: Context,
+    endpoint: PricedEndpoint,
+    scope: VipScope,
+    rawBody: string,
+    handler: (payer: string) => Promise<HandlerResult>,
+  ): Promise<GuardedResult> {
+    const decision = vip.check(
+      {
+        authorization: c.req.header("authorization"),
+        timestamp: c.req.header("x-crossfare-timestamp"),
+        signature: c.req.header("x-crossfare-sign"),
+        method: c.req.method,
+        path: c.req.path,
+        body: rawBody,
+      },
+      scope,
+    );
+    if (decision.kind === "denied") {
+      if (decision.status !== 402) return { status: decision.status, body: { error: decision.error } };
+      const required = await deps.gateway.paymentRequired(endpoint, c.req.url, decision.error);
+      return { status: 402, body: { ...(required.body as object), error: decision.error }, headers: required.headers };
+    }
+    if (decision.kind === "allowed") {
+      const { status, body, usedBy } = await runUnpaid(endpoint, handler, decision.payer);
+      if (status < 400) vip.record(decision.key, endpoint.key, usedBy ?? "");
+      return { status, body };
+    }
+    return guard.run({ endpoint, url: c.req.url, header: paymentHeader(c.req) }, handler);
+  }
 
   /** Waits briefly for the Arkiv write. A slower write finishes in the background. */
   async function publish(quoteId: string, quote: PublicQuote) {
@@ -266,12 +323,13 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   app.post("/v1/quote", async (c) => {
-    const parsed = parseQuoteRequest(await c.req.json().catch(() => null));
+    // The raw body is what a VIP caller signs.
+    const rawBody = await c.req.text();
+    const parsed = parseQuoteRequest(parseJson(rawBody));
     if (!("request" in parsed)) return c.json({ error: parsed.error }, parsed.status);
     const { request } = parsed;
 
-    const result = await guard.run(
-      { endpoint: QUOTE_ENDPOINT, url: c.req.url, header: paymentHeader(c.req) },
+    const result = await charged(c, QUOTE_ENDPOINT, "quote", rawBody,
       async (payer) => {
         const answers = await Promise.allSettled(venues.map((venue) => venue.quote(request)));
         const routes = withUsdValues(answers.flatMap((answer) => (answer.status === "fulfilled" ? answer.value : [])));
@@ -330,19 +388,10 @@ export function createApp(deps: AppDeps): Hono {
     ...(prepared.deposit ? { deposit: prepared.deposit } : {}),
   });
 
-  /** Runs the handler with no payment. Failures answer as they do on the paid path. */
-  async function runFree(handler: (payer: string) => Promise<HandlerResult>, payer: string): Promise<GuardedResult> {
-    try {
-      const { status, body } = await handler(payer);
-      return { status, body };
-    } catch (error) {
-      onError(`${swapEndpoint.key} handler failed`, error);
-      return { status: 502, body: { error: "upstream_failed" } };
-    }
-  }
 
   app.post("/v1/swap", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { quoteId?: unknown; swapToken?: unknown } | null;
+    const rawBody = await c.req.text();
+    const body = parseJson(rawBody) as { quoteId?: unknown; swapToken?: unknown } | null;
     if (typeof body?.quoteId !== "string") return c.json({ error: "quoteId is required" }, 400);
     const quote = store.getQuote(body.quoteId);
     if (!quote) return c.json({ error: "unknown_quote" }, 404);
@@ -413,9 +462,9 @@ export function createApp(deps: AppDeps): Hono {
       return { status: 200, body: swapBody(swapId, venue.name, fresh.provider, prepared), usedBy: swapId };
     };
 
-    const result = swapIsFree
-      ? await runFree(handler, quote.payer)
-      : await guard.run({ endpoint: swapEndpoint, url: c.req.url, header: paymentHeader(c.req) }, handler);
+    const result: GuardedResult = swapIsFree
+      ? await runUnpaid(swapEndpoint, handler, quote.payer)
+      : await charged(c, swapEndpoint, "swap", rawBody, handler);
     return respond(result);
   });
 
