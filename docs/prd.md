@@ -92,6 +92,7 @@ Live at crossfare.vercel.app, with the UI on Vercel and the API on EC2. Five rea
 * [x] Deployed: the UI on Vercel, which forwards API requests to EC2 behind nginx, with HTTPS on a temporary sslip.io name
 * [x] Real swaps on the deployed site, which were also the first real runs of the stage tracker and on-chain deposit check
 * [x] Uniswap on all 21 of its chains, and any ERC-20 by contract with an unverified warning (FR-51, FR-52), built 9 November. Checked with real quotes on Arbitrum, Unichain and an unlisted Base token; no real swap on the new chains yet
+* [x] NEAR Intents and THORChain called directly, with SwapKit as the fallback for both (FR-53 to FR-55), built 9 November. Checked with real quotes for LTC to SOL, SOL to LTC and LTC to BTC; no real swap through either directly yet. THORChain's Solana trading was halted, so it had no LTC to SOL route
 * [ ] The MCP server (FR-2, P1), which isn't built, so packages/mcp doesn't exist
 
 ## How Crossfare is different
@@ -286,6 +287,9 @@ The demo has 37 requirements marked P0; P1 items earn sponsor extra points if ti
 | FR-50 | Execution | A deposit that differs from the quote is reported, not hidden. On NEAR routes the order states the minimum (slippage below the quote when flexible). Below it the page says how much arrived, how much more is needed and when the refund is due, and doesn't expire while funds sit there. The result screen shows what was really sent and any refund | P0 demo |
 | FR-51 | Routing | Uniswap quotes on every mainnet its Trading API supports (21 on 9 November), and the agent and UI sign on all of them. The catalog adds Uniswap's default token list and each chain's native coin to SwapKit's lists. Built 9 November | P2 later |
 | FR-52 | Routing | Any ERC-20 on those chains can be named by contract, as `chain:0x…`. A token on no list is read from the chain, kept so swaps naming it resolve, quoted on Uniswap only (same chain) and flagged `unlisted_token`; the picker finds it by pasted address and marks it Unverified. Built 9 November | P2 later |
+| FR-53 | Routing | Quote NEAR Intents directly through its 1Click API with an app fee, when a fee recipient is configured. A live quote, and so a deposit address, is made only when a swap is requested. 1Click keeps half of the app fee and at least 20 bps, so a full fee needs a partner agreement. Built 9 November | P2 later |
+| FR-54 | Routing | Quote THORChain directly through a THORNode with an affiliate THORName, when one is configured. Deposits from UTXO chains carry the memo, so they need a wallet that can attach one; EVM sources get an approval and a router call to sign. Built 9 November | P2 later |
+| FR-55 | Routing | SwapKit stays the fallback: its route through NEAR Intents or THORChain is dropped only when the direct venue returned a route for the same request. Built 9 November | P2 later |
 
 ## Architecture
 
