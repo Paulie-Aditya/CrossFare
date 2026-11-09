@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { get } from "./api.ts";
-import { arkivEntityUrl, explorerLinks, formatAmount, formatUsd, shorten, statusLabel } from "./journey.ts";
+import { arkivEntityUrl, explorerLinks, formatAmount, formatUsd, shorten, statusLabel, venueLabel } from "./journey.ts";
 import { chainNameOf, symbolOf } from "./asset-book.ts";
 import { Coin } from "./ui.tsx";
 
@@ -24,11 +24,7 @@ const whenText = (seconds?: number) =>
   seconds
     ? new Date(seconds * 1000).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })
     : "";
-const venueName = (row: RecordRow) => {
-  const provider = row.payload?.provider?.replaceAll("_", " ").toUpperCase();
-  if (row.venue === "uniswap") return "Uniswap";
-  return provider ? `SwapKit via ${provider}` : "SwapKit";
-};
+const venueName = (row: RecordRow) => venueLabel(row.venue, row.payload?.provider).full;
 
 function HistoryRow({ row }: { row: RecordRow }) {
   const out = row.amountReceived ?? row.payload?.amountOut;

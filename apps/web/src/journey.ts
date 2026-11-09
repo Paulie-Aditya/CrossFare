@@ -330,6 +330,16 @@ export function explorerLinks(hashes: string[], fromAsset: string, toAsset: stri
   });
 }
 
+const DIRECT_VENUES: Record<string, string> = { uniswap: "Uniswap", "near-intents": "NEAR Intents", thorchain: "THORChain" };
+
+/** Who fills a route: a venue Crossfare calls directly, or SwapKit and the provider behind it. */
+export function venueLabel(venue: string | undefined, provider?: string): { full: string; short: string } {
+  const direct = venue ? DIRECT_VENUES[venue] : undefined;
+  if (direct) return { full: direct, short: direct };
+  const via = provider?.replaceAll("_", " ").toUpperCase();
+  return via ? { full: `SwapKit via ${via}`, short: via } : { full: "SwapKit", short: "SwapKit" };
+}
+
 export type RouteAction = "deposit" | "wallet" | "connect" | "unsupported";
 
 /** The page's wallet signs on every chain Uniswap trades on. */

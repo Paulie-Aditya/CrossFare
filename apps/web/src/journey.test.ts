@@ -23,6 +23,7 @@ import {
   reduceJourney,
   routeAction,
   shorten,
+  venueLabel,
   walletMatches,
   type JourneyState,
   type PublicRoute,
@@ -603,3 +604,16 @@ describe("a deposit that differs from the quote", () => {
   });
 });
 
+
+describe("venueLabel", () => {
+  it("names a venue Crossfare reaches directly by itself", () => {
+    expect(venueLabel("near-intents")).toEqual({ full: "NEAR Intents", short: "NEAR Intents" });
+    expect(venueLabel("thorchain")).toEqual({ full: "THORChain", short: "THORChain" });
+    expect(venueLabel("uniswap")).toEqual({ full: "Uniswap", short: "Uniswap" });
+  });
+
+  it("names SwapKit by the provider it routes through", () => {
+    expect(venueLabel("swapkit", "thorchain_streaming")).toEqual({ full: "SwapKit via THORCHAIN STREAMING", short: "THORCHAIN STREAMING" });
+    expect(venueLabel("swapkit")).toEqual({ full: "SwapKit", short: "SwapKit" });
+  });
+});

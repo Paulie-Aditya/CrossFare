@@ -34,6 +34,7 @@ import {
   swapCost,
   topUpNeeded,
   unitPrice,
+  venueLabel,
   walletMatches,
   type Deposit,
   type OrderStage,
@@ -51,13 +52,8 @@ const ARKIV_POLL_MS = 5_000;
 const BASE_TITLE = "Crossfare";
 
 const looksEvm = (address: string) => /^0x/i.test(address.trim());
-const providerName = (route: PublicRoute) => {
-  if (route.venue === "uniswap") return "Uniswap";
-  const provider = route.provider?.replaceAll("_", " ");
-  return provider ? `SwapKit via ${provider.toUpperCase()}` : "SwapKit";
-};
-const providerShort = (route: PublicRoute | undefined) =>
-  route?.venue === "uniswap" ? "Uniswap" : (route?.provider?.replaceAll("_", " ").toUpperCase() ?? "SwapKit");
+const providerName = (route: PublicRoute) => venueLabel(route.venue, route.provider).full;
+const providerShort = (route: PublicRoute | undefined) => venueLabel(route?.venue, route?.provider).short;
 
 function useNow(active: boolean): Date {
   const [now, setNow] = useState(() => new Date());
