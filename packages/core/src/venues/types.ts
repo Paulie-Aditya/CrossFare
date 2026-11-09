@@ -91,6 +91,11 @@ export class VenueError extends Error {
 /** The only interface the rest of Crossfare uses to reach a venue. */
 export interface Venue {
   readonly name: string;
+  /**
+   * SwapKit providers this venue reaches directly. When it has a route, SwapKit's routes
+   * through those providers are dropped, so SwapKit stays the fallback for them.
+   */
+  readonly replaces?: readonly string[];
   /** Returns no routes when the venue can't serve the pair; throws VenueError on failure. */
   quote(request: QuoteRequest): Promise<Route[]>;
   prepare(route: Route, request: QuoteRequest): Promise<PreparedSwap>;
