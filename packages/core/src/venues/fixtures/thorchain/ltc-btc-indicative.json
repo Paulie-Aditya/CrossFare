@@ -1,0 +1,27 @@
+{
+  "inbound_address": "ltc1qghejl6tasu04dxg5v9zz44gx4fuy3l7jg3mlmu",
+  "inbound_confirmation_blocks": 1,
+  "inbound_confirmation_seconds": 150,
+  "outbound_delay_blocks": 0,
+  "outbound_delay_seconds": 0,
+  "fees": {
+    "asset": "BTC.BTC",
+    "affiliate": "335",
+    "outbound": "880",
+    "liquidity": "134",
+    "total": "1349",
+    "slippage_bps": 19,
+    "total_bps": 197
+  },
+  "expiry": 1794182699,
+  "warning": "Do not cache this response. Do not send funds after the expiry.",
+  "notes": "First output should be to inbound_address, second output should be change back to self, third output should be OP_RETURN, limited to 80 bytes. Do not send below the dust threshold. Do not use exotic spend scripts, locks or address formats. MWEB addresses are not supported; do not use ltcmweb1 addresses or peg-in transactions.",
+  "dust_threshold": "100000",
+  "recommended_min_amount_in": "8433473",
+  "recommended_gas_rate": "70",
+  "gas_rate_units": "satsperbyte",
+  "expected_amount_out": "65854",
+  "max_streaming_quantity": 1,
+  "streaming_swap_blocks": 0,
+  "total_swap_seconds": 150
+}

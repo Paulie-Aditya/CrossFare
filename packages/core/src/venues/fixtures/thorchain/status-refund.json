@@ -1,0 +1,75 @@
+{
+  "tx": {
+    "id": "8F72261C55A87B8DE557D977F7C15DAC73AB0E98CF9EA7839E78ADF8F7534E0A",
+    "chain": "LTC",
+    "from_address": "ltc1qgjy0g4dyxymk4jr3vqxjqlezfkfca7gkmptryk",
+    "to_address": "ltc1qd5gsu875lekewcel0p6wvuev25ynn7ee6ej48e",
+    "coins": [
+      {
+        "asset": "LTC.LTC",
+        "amount": "7410345"
+      }
+    ],
+    "gas": [
+      {
+        "asset": "LTC.LTC",
+        "amount": "288"
+      }
+    ],
+    "memo": "=:b:bc1qxf4sya0wpysp9att8dghku0vrtprl95h648drw:3456/0/0:-_/t1:0/80"
+  },
+  "planned_out_txs": [
+    {
+      "chain": "LTC",
+      "to_address": "ltc1qgjy0g4dyxymk4jr3vqxjqlezfkfca7gkmptryk",
+      "coin": {
+        "asset": "LTC.LTC",
+        "amount": "6928935"
+      },
+      "refund": true
+    }
+  ],
+  "out_txs": [
+    {
+      "id": "84F8323D82712C23727325D6A3DD275E4E1C10EC179B9E2ED4B6370776FD4436",
+      "chain": "LTC",
+      "from_address": "ltc1qd5gsu875lekewcel0p6wvuev25ynn7ee6ej48e",
+      "to_address": "ltc1qgjy0g4dyxymk4jr3vqxjqlezfkfca7gkmptryk",
+      "coins": [
+        {
+          "asset": "LTC.LTC",
+          "amount": "6928935"
+        }
+      ],
+      "gas": [
+        {
+          "asset": "LTC.LTC",
+          "amount": "6750"
+        }
+      ],
+      "memo": "REFUND:8F72261C55A87B8DE557D977F7C15DAC73AB0E98CF9EA7839E78ADF8F7534E0A"
+    }
+  ],
+  "stages": {
+    "inbound_observed": {
+      "final_count": 111,
+      "completed": true
+    },
+    "inbound_confirmation_counted": {
+      "remaining_confirmation_seconds": 0,
+      "completed": true
+    },
+    "inbound_finalised": {
+      "completed": true
+    },
+    "swap_status": {
+      "pending": false
+    },
+    "swap_finalised": {
+      "completed": true
+    },
+    "outbound_signed": {
+      "completed": true
+    }
+  }
+}

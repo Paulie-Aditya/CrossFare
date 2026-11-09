@@ -1,0 +1,86 @@
+{
+  "tx": {
+    "id": "175B2D3863B5AC5B7866CF85A99710F133B6A1616D9EDAE73E4245B7FCCB9E3D",
+    "chain": "LTC",
+    "from_address": "ltc1qwewxfpfe42v03ne0pcv0h552fxe4w8ykajcuqm",
+    "to_address": "ltc1qd5gsu875lekewcel0p6wvuev25ynn7ee6ej48e",
+    "coins": [
+      {
+        "asset": "LTC.LTC",
+        "amount": "71251789"
+      }
+    ],
+    "gas": [
+      {
+        "asset": "LTC.LTC",
+        "amount": "19355"
+      }
+    ],
+    "memo": "=:b:bc1qy3u9jelyjvx52lk8kg93lrusgmkl73h4ygaz54:0/1/1:ej:75"
+  },
+  "planned_out_txs": [
+    {
+      "chain": "BTC",
+      "to_address": "bc1qy3u9jelyjvx52lk8kg93lrusgmkl73h4ygaz54",
+      "coin": {
+        "asset": "BTC.BTC",
+        "amount": "46558"
+      },
+      "refund": false
+    },
+    {
+      "chain": "THOR",
+      "to_address": "thor1dl7un46w7l7f3ewrnrm6nq58nerjtp0dradjtd",
+      "coin": {
+        "asset": "THOR.RUNE",
+        "amount": "46519066"
+      },
+      "refund": false
+    }
+  ],
+  "out_txs": [
+    {
+      "id": "0000000000000000000000000000000000000000000000000000000000000000",
+      "chain": "THOR",
+      "from_address": "thor1g98cy3n9mmjrpn0sxmn63lztelera37n8n67c0",
+      "to_address": "thor1dl7un46w7l7f3ewrnrm6nq58nerjtp0dradjtd",
+      "coins": [
+        {
+          "asset": "THOR.RUNE",
+          "amount": "46519066"
+        }
+      ],
+      "gas": [
+        {
+          "asset": "THOR.RUNE",
+          "amount": "2000000"
+        }
+      ],
+      "memo": "OUT:175B2D3863B5AC5B7866CF85A99710F133B6A1616D9EDAE73E4245B7FCCB9E3D"
+    }
+  ],
+  "stages": {
+    "inbound_observed": {
+      "final_count": 111,
+      "completed": true
+    },
+    "inbound_confirmation_counted": {
+      "remaining_confirmation_seconds": 0,
+      "completed": true
+    },
+    "inbound_finalised": {
+      "completed": true
+    },
+    "swap_status": {
+      "pending": false
+    },
+    "swap_finalised": {
+      "completed": true
+    },
+    "outbound_signed": {
+      "scheduled_outbound_height": 28592303,
+      "blocks_since_scheduled": 95,
+      "completed": false
+    }
+  }
+}
