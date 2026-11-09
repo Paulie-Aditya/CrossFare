@@ -13,6 +13,10 @@ export interface Config {
   facilitatorUrl: string;
   /** Unset means POST /v1/swap is free. */
   swapPriceUsd?: string;
+  /** Swaps through NEAR Intents' 1Click API directly. Null leaves NEAR routes to SwapKit. */
+  nearIntents: { feeRecipient: string; feeBps: number; apiKey?: string } | null;
+  /** Swaps through a THORNode directly. Null leaves THORChain routes to SwapKit. */
+  thorchain: { affiliate: string; affiliateBps: number; thornodeUrl?: string } | null;
   /** RPC endpoints by EVM chain ID. A chain without one uses its public RPCs. */
   rpcUrls: Record<number, string>;
   port: number;
@@ -48,6 +52,32 @@ function rpcUrls(env: Record<string, string | undefined>): Record<number, string
   return urls;
 }
 
+/** 1Click caps its fees and the app's together at 500 bps; THORChain caps an affiliate at 1000. */
+function feeBps(env: Record<string, string | undefined>, name: string, max: number): number {
+  const value = env[name] ?? "";
+  if (!/^\d+$/.test(value) || Number(value) > max) throw new Error(`${name} must be a whole number of basis points from 0 to ${max}`);
+  return Number(value);
+}
+
+function directVenues(env: Record<string, string | undefined>): Pick<Config, "nearIntents" | "thorchain"> {
+  return {
+    nearIntents: env.NEAR_INTENTS_FEE_RECIPIENT
+      ? {
+          feeRecipient: env.NEAR_INTENTS_FEE_RECIPIENT,
+          feeBps: feeBps(env, "NEAR_INTENTS_FEE_BPS", 500),
+          ...(env.NEAR_INTENTS_API_KEY ? { apiKey: env.NEAR_INTENTS_API_KEY } : {}),
+        }
+      : null,
+    thorchain: env.THORCHAIN_AFFILIATE
+      ? {
+          affiliate: env.THORCHAIN_AFFILIATE,
+          affiliateBps: feeBps(env, "THORCHAIN_AFFILIATE_BPS", 1000),
+          ...(env.THORNODE_URL ? { thornodeUrl: env.THORNODE_URL } : {}),
+        }
+      : null,
+  };
+}
+
 export function loadConfig(env: Record<string, string | undefined>): Config {
   const demoAccount = env.DEMO_HEDERA_ACCOUNT || env.AGENT_HEDERA_ACCOUNT;
   const demoKey = env.DEMO_HEDERA_KEY || env.AGENT_HEDERA_KEY;
@@ -68,6 +98,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     usdcTokenId: env.HEDERA_USDC_TOKEN_ID || TESTNET_USDC,
     facilitatorUrl: env.X402_FACILITATOR_URL || "https://x402.org/facilitator",
     ...(env.SWAP_PRICE_USDC ? { swapPriceUsd: env.SWAP_PRICE_USDC } : {}),
+    ...directVenues(env),
     rpcUrls: rpcUrls(env),
     port: Number(env.PORT || 8787),
     databasePath: env.DATABASE_PATH || "crossfare.db",

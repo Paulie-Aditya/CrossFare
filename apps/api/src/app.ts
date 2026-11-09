@@ -8,6 +8,7 @@ import {
   listAssets,
   listChains,
   displaySymbol,
+  preferDirectRoutes,
   rankRoutes,
   toBaseUnits,
   VenueError,
@@ -373,7 +374,7 @@ export function createApp(deps: AppDeps): Hono {
     const result = await charged(c, QUOTE_ENDPOINT, "quote", rawBody,
       async (payer) => {
         const answers = await Promise.allSettled(venues.map((venue) => venue.quote(request)));
-        const routes = withUsdValues(answers.flatMap((answer) => (answer.status === "fulfilled" ? answer.value : [])));
+        const routes = withUsdValues(preferDirectRoutes(venues, answers.flatMap((answer) => (answer.status === "fulfilled" ? answer.value : []))));
         for (const answer of answers) {
           if (answer.status === "rejected") onError("venue quote failed", answer.reason);
         }
@@ -565,7 +566,7 @@ export function createApp(deps: AppDeps): Hono {
       indicative: true,
     };
     const answers = await Promise.allSettled(venues.map((venue) => venue.quote(request)));
-    const routes = rankRoutes(withUsdValues(answers.flatMap((answer) => (answer.status === "fulfilled" ? answer.value : []))));
+    const routes = rankRoutes(withUsdValues(preferDirectRoutes(venues, answers.flatMap((answer) => (answer.status === "fulfilled" ? answer.value : [])))));
     const best = routes[0];
     if (!best) {
       const allFailed = answers.length > 0 && answers.every((answer) => answer.status === "rejected");

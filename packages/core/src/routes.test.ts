@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fromBaseUnits, rankRoutes, type Route, describeSwap, withUsdValues } from "./routes.ts";
+import { fromBaseUnits, preferDirectRoutes, rankRoutes, type Route, describeSwap, withUsdValues } from "./routes.ts";
 
 const route = (venue: string, minAmountOut: string, amountOut = minAmountOut): Route => ({
   venue,
@@ -93,5 +93,31 @@ describe("describeSwap", () => {
   it("fits Arkiv's 128-byte limit for a string", () => {
     const line = describeSwap({ from: "base:eth", to: "xrp:xrp", amountIn: "123456789123456789123456", amountOut: "98765432123456789", outcome: "completed" });
     expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(128);
+  });
+});
+
+describe("preferDirectRoutes", () => {
+  const near = { name: "near-intents", replaces: ["near"] };
+  const thor = { name: "thorchain", replaces: ["thorchain", "thorchain_streaming"] };
+  const viaSwapKit = (provider: string, minAmountOut: string) => ({ ...route("swapkit", minAmountOut), provider });
+
+  it("drops SwapKit's route through a provider that answered directly", () => {
+    const kept = preferDirectRoutes([near, thor], [route("near-intents", "90"), viaSwapKit("near", "95"), viaSwapKit("chainflip", "80")]);
+    expect(kept.map((r) => r.provider ?? r.venue)).toEqual(["near-intents", "chainflip"]);
+  });
+
+  it("drops every SwapKit route through THORChain, streamed or not", () => {
+    const kept = preferDirectRoutes([thor], [route("thorchain", "90"), viaSwapKit("thorchain", "91"), viaSwapKit("thorchain_streaming", "92")]);
+    expect(kept.map((r) => r.venue)).toEqual(["thorchain"]);
+  });
+
+  it("keeps SwapKit's route when the direct venue had none, so it stays the fallback", () => {
+    const kept = preferDirectRoutes([near], [viaSwapKit("near", "95")]);
+    expect(kept).toHaveLength(1);
+  });
+
+  it("keeps a SwapKit route that only passes through a provider on the way", () => {
+    const kept = preferDirectRoutes([near], [route("near-intents", "90"), viaSwapKit("uniswap_v3+near", "95")]);
+    expect(kept).toHaveLength(2);
   });
 });

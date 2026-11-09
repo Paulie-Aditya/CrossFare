@@ -17,8 +17,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   addUnlistedAssets,
+  createNearIntentsVenue,
   createSwapKitScreen,
   createSwapKitVenue,
+  createThorchainVenue,
   createUniswapVenue,
   fetchSwapKitCatalog,
   fetchUniswapTokenList,
@@ -134,6 +136,9 @@ const arkiv = connectArkiv({ privateKey: config.arkivPrivateKey, accessKey: conf
 const app = createApp({
   venues: [
     createUniswapVenue({ apiKey: config.uniswapApiKey, getReceipt }),
+    // Reached directly, these keep the whole affiliate fee. SwapKit stays the fallback for both.
+    ...(config.nearIntents ? [createNearIntentsVenue(config.nearIntents)] : []),
+    ...(config.thorchain ? [createThorchainVenue(config.thorchain)] : []),
     createSwapKitVenue({ apiKey: config.swapkitApiKey }),
   ],
   store,

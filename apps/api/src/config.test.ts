@@ -73,3 +73,32 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...env, ARKIV_PRIVATE_KEY: "nope" })).toThrow(/ARKIV_PRIVATE_KEY/);
   });
 });
+
+describe("direct venues", () => {
+  it("stay off until a fee recipient is set, so SwapKit keeps every provider", () => {
+    expect(loadConfig(env)).toMatchObject({ nearIntents: null, thorchain: null });
+  });
+
+  it("turn on NEAR Intents with its fee, and a partner key when there is one", () => {
+    expect(loadConfig({ ...env, NEAR_INTENTS_FEE_RECIPIENT: "crossfare.near", NEAR_INTENTS_FEE_BPS: "50" }).nearIntents).toEqual({
+      feeRecipient: "crossfare.near",
+      feeBps: 50,
+    });
+    expect(
+      loadConfig({ ...env, NEAR_INTENTS_FEE_RECIPIENT: "crossfare.near", NEAR_INTENTS_FEE_BPS: "50", NEAR_INTENTS_API_KEY: "k" }).nearIntents,
+    ).toMatchObject({ apiKey: "k" });
+  });
+
+  it("turn on THORChain with its affiliate name and fee, on a chosen node", () => {
+    expect(
+      loadConfig({ ...env, THORCHAIN_AFFILIATE: "cf", THORCHAIN_AFFILIATE_BPS: "50", THORNODE_URL: "https://node.example" }).thorchain,
+    ).toEqual({ affiliate: "cf", affiliateBps: 50, thornodeUrl: "https://node.example" });
+  });
+
+  it("refuse a fee that isn't whole basis points in each venue's range", () => {
+    expect(() => loadConfig({ ...env, NEAR_INTENTS_FEE_RECIPIENT: "x.near" })).toThrow(/NEAR_INTENTS_FEE_BPS/);
+    expect(() => loadConfig({ ...env, NEAR_INTENTS_FEE_RECIPIENT: "x.near", NEAR_INTENTS_FEE_BPS: "501" })).toThrow(/NEAR_INTENTS_FEE_BPS/);
+    expect(() => loadConfig({ ...env, THORCHAIN_AFFILIATE: "cf", THORCHAIN_AFFILIATE_BPS: "0.5" })).toThrow(/THORCHAIN_AFFILIATE_BPS/);
+    expect(() => loadConfig({ ...env, THORCHAIN_AFFILIATE: "cf", THORCHAIN_AFFILIATE_BPS: "1001" })).toThrow(/THORCHAIN_AFFILIATE_BPS/);
+  });
+});

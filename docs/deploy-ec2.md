@@ -80,6 +80,8 @@ The higher per-IP limit is for the UI on Vercel. Behind Vercel and Caddy the API
 
 The API reads receipts, deposits and unlisted tokens on all 21 chains Uniswap trades on, through each chain's public RPC. Public RPCs rate-limit, so for chains you expect traffic on, add a provider's URL as `RPC_URL_<chainId>`, for example `RPC_URL_42161=` for Arbitrum. `BASE_RPC_URL` and `ETHEREUM_RPC_URL` still work.
 
+To quote NEAR Intents and THORChain directly and keep their affiliate fees, add `NEAR_INTENTS_FEE_RECIPIENT` and `NEAR_INTENTS_FEE_BPS`, and `THORCHAIN_AFFILIATE` and `THORCHAIN_AFFILIATE_BPS`. Leave them out and SwapKit routes both, as before. `.env.example` and the README's "Direct venues" paragraph explain the values.
+
 **Never put `AGENT_EVM_PRIVATE_KEY` on the server.** It signs swaps with real money, and only the agent needs it. The server uses `AGENT_HEDERA_*` to pay visitors' testnet fees, so that key must not also control real funds.
 
 ## 5. Start the service

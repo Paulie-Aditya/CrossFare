@@ -254,6 +254,21 @@ describe("POST /v1/quote", () => {
     expect(response.status).toBe(200);
     expect((await (response.json() as Promise<any>)).routes).toHaveLength(1);
   });
+
+  it("prefers a provider reached directly over the same provider through SwapKit", async () => {
+    const direct = Object.assign(fakeVenue("near-intents", [route("near-intents", "90")]), { replaces: ["near"] });
+    const swapkit = fakeVenue("swapkit", [route("swapkit", "95", { provider: "near" }), route("swapkit", "80", { provider: "chainflip" })]);
+    const body = await ((await postQuote(app([direct, swapkit]))).json() as Promise<any>);
+    expect(body.routes.map((r: { venue: string; provider?: string }) => r.provider ?? r.venue)).toEqual(["near-intents", "chainflip"]);
+  });
+
+  it("falls back on SwapKit's route through a provider whose direct venue fails", async () => {
+    const direct = Object.assign(fakeVenue("near-intents"), { replaces: ["near"] });
+    direct.quote.mockRejectedValue(new VenueError("near-intents", 503, "down"));
+    const swapkit = fakeVenue("swapkit", [route("swapkit", "95", { provider: "near" })]);
+    const body = await ((await postQuote(app([direct, swapkit]))).json() as Promise<any>);
+    expect(body.routes.map((r: { provider?: string }) => r.provider)).toEqual(["near"]);
+  });
 });
 
 describe("GET /v1/quotes", () => {
@@ -840,6 +855,12 @@ describe("GET /v1/price", () => {
     expect(publisher.publishQuote).not.toHaveBeenCalled();
     expect(settle).not.toHaveBeenCalled();
     expect(venue.quote.mock.calls[0]![0]).toMatchObject({ indicative: true });
+  });
+
+  it("prices a provider reached directly over the same provider through SwapKit", async () => {
+    const direct = Object.assign(fakeVenue("thorchain", [route("thorchain", "1000000000000000")]), { replaces: ["thorchain"] });
+    const swapkit = fakeVenue("swapkit", [priced("thorchain", "2000000000000000")]);
+    expect(await (await ask(app([direct, swapkit]))).json()).toMatchObject({ venue: "thorchain", amountOut: "0.001" });
   });
 
   it("holds nothing that could execute a swap", async () => {

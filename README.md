@@ -1,6 +1,6 @@
 # Crossfare
 
-An open-source cross-chain swap API that AI agents pay for per call. An agent pays for its quotes with x402 on Hedera, checks them on Arkiv, and executes through the SwapKit API, or Uniswap for same-chain swaps. It needs no signup or API key, and Crossfare never holds the swapped funds.
+An open-source cross-chain swap API that AI agents pay for per call. An agent pays for its quotes with x402 on Hedera, checks them on Arkiv, and executes through Uniswap for same-chain swaps, and NEAR Intents, THORChain or the SwapKit API across chains. It needs no signup or API key, and Crossfare never holds the swapped funds.
 
 For example: you tell your agent to swap 5 USDC on Ethereum to ETH on Base. It asks for the receiving address, pays 0.01 testnet USDC on Hedera for a quote, publishes it on Arkiv, and sends the deposit that SwapKit routes.
 
@@ -63,7 +63,8 @@ flowchart TB
     api --> hedera["Hedera testnet: x402 payments, HCS audit log"]
     api --> arkiv["Arkiv testnet: public quote records"]
     api --> uniswap["Uniswap API: same-chain routes"]
-    api --> swapkit["SwapKit API: cross-chain routes, status, screening"]
+    api --> direct["NEAR Intents and THORChain: cross-chain routes, called directly"]
+    api --> swapkit["SwapKit API: other cross-chain routes, status, screening"]
 ```
 
 Swapped funds never pass through Crossfare. They go from the caller's wallet to the venue.
@@ -75,7 +76,7 @@ sequenceDiagram
     participant A as Agent
     participant C as Crossfare API
     participant H as Hedera (x402)
-    participant V as Uniswap / SwapKit
+    participant V as Venue
     participant K as Arkiv
     A->>C: GET /.well-known/x402
     A->>C: POST /v1/quote
@@ -124,6 +125,12 @@ Prices are placeholders, settled in testnet USDC. Set `SWAP_PRICE_USDC` to charg
 
 **VIP keys.** A service that makes many calls can skip x402 with a VIP key: it signs each request with an HMAC instead of paying, and its calls are rate-limited, counted for billing and published on Arkiv under the key's label. See [`docs/vip.md`](docs/vip.md).
 
+**Direct venues.** NEAR Intents (through its 1Click API) and THORChain (through a THORNode) can be called directly rather than through SwapKit, so the affiliate fee isn't shared with SwapKit. Each turns on when its fee recipient is set: `NEAR_INTENTS_FEE_RECIPIENT` with `NEAR_INTENTS_FEE_BPS`, and `THORCHAIN_AFFILIATE` with `THORCHAIN_AFFILIATE_BPS`. When a direct venue has a route, SwapKit's route through the same provider is dropped. When it has none or fails, SwapKit's route stays as the fallback. Measured on 9 November:
+
+- 1Click keeps half of the app fee, and at least 20 bps, with or without a partner key: asking for 50 bps paid 25 to the recipient, although its fee page says unauthenticated callers keep all of theirs. A better split needs a partner agreement.
+- THORChain pays the whole affiliate fee. From Litecoin, Bitcoin and other UTXO chains the memo must fit in 80 bytes, so the affiliate must be a short registered THORName, not a `thor1` address. A THORChain deposit must carry its memo, so these routes return the memo with the vault address and the UI doesn't offer them as plain transfers. From Ethereum, BNB Chain, Avalanche and Base they are router calls a wallet signs.
+- 1Click needs real addresses to quote, so the free price check doesn't ask it and can still show SwapKit's NEAR route.
+
 ## Repository
 
 | Path | Contents |
@@ -162,6 +169,7 @@ pnpm --filter @crossfare/agent start --from eth:usdc --to base:eth --amount 5
 You need:
 
 - Uniswap and SwapKit API keys
+- optionally, a NEAR Intents account and a THORName to receive fees from those venues directly
 - two Hedera testnet accounts, both associated with testnet USDC (`0.0.429274`) by `pnpm setup:usdc`, and the agent's funded with USDC
 - an Arkiv access key and a wallet funded from the faucet
 - for live swaps, a dedicated EVM wallet with small balances, including ETH for gas on the source chain

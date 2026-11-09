@@ -33,6 +33,17 @@ export function rankRoutes(routes: readonly Route[]): Route[] {
   });
 }
 
+/**
+ * Crossfare reaches some of SwapKit's providers directly, which keeps the whole fee.
+ * A direct route replaces SwapKit's route through the same provider; with no direct
+ * route, SwapKit's stays as the fallback.
+ */
+export function preferDirectRoutes(venues: readonly { name: string; replaces?: readonly string[] }[], routes: readonly Route[]): Route[] {
+  const answered = new Set(routes.map((route) => route.venue));
+  const covered = new Set(venues.filter((venue) => answered.has(venue.name)).flatMap((venue) => venue.replaces ?? []));
+  return routes.filter((route) => route.venue !== "swapkit" || !route.provider || !covered.has(route.provider));
+}
+
 export function fromBaseUnits(amount: string, decimals: number): string {
   const digits = amount.padStart(decimals + 1, "0");
   const whole = digits.slice(0, digits.length - decimals);
