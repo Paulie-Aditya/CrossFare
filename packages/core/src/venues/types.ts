@@ -11,6 +11,8 @@ export interface QuoteRequest {
   flexibleDeposit?: boolean;
   /** A price check with no addresses behind it. It can't be executed. */
   indicative?: boolean;
+  /** Crossfare's fee on this caller's swap, in basis points. Only Uniswap charges it per request so far. */
+  feeBps?: number;
 }
 
 export interface UnsignedTransaction {

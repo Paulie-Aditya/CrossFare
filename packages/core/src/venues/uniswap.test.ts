@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { catalogAsset, registerAssets } from "../assets.ts";
 import { createUniswapVenue } from "./uniswap.ts";
@@ -140,6 +141,69 @@ describe("uniswap quote", () => {
   it("does not leak the API key in errors", async () => {
     const fetch = fakeFetch({ "/quote": () => json({ detail: "boom" }, 500) });
     await expect(venue(fetch).quote(request)).rejects.not.toThrow(/test-key/);
+  });
+});
+
+describe("an integrator fee", () => {
+  const FEE_WALLET = "0xebdfd05075d84435de2d9a05336e7b2814e10cb5";
+  // Recorded from the live API: 2 USDC to ETH on Base with 100 bips to FEE_WALLET.
+  const feeQuote = JSON.parse(readFileSync(new URL("./fixtures/uniswap/quote-integrator-fee.json", import.meta.url), "utf8"));
+  const withFee = (fetch: FetchLike) => createUniswapVenue({ apiKey: "test-key", fetch, now: () => NOW, feeRecipient: FEE_WALLET });
+  const sentBody = (fetch: ReturnType<typeof fakeFetch>) => JSON.parse(fetch.mock.calls[0]![1]?.body as string);
+
+  it("asks Uniswap for the caller's fee, paid to the fee wallet", async () => {
+    const fetch = fakeFetch({ "/quote": () => json(feeQuote) });
+    await withFee(fetch).quote({ ...request, feeBps: 100 });
+    expect(sentBody(fetch).integratorFees).toEqual([{ bips: 100, recipient: FEE_WALLET }]);
+  });
+
+  it("charges nothing when the caller's fee is zero or unset", async () => {
+    for (const feeBps of [undefined, 0]) {
+      const fetch = fakeFetch({ "/quote": () => json(quoteResponse) });
+      await withFee(fetch).quote({ ...request, ...(feeBps === undefined ? {} : { feeBps }) });
+      expect(sentBody(fetch)).not.toHaveProperty("integratorFees");
+    }
+  });
+
+  it("charges nothing without a fee wallet", async () => {
+    const fetch = fakeFetch({ "/quote": () => json(quoteResponse) });
+    await venue(fetch).quote({ ...request, feeBps: 100 });
+    expect(sentBody(fetch)).not.toHaveProperty("integratorFees");
+  });
+
+  it("quotes what reaches the caller, and shows the fee", async () => {
+    const [route] = await withFee(fakeFetch({ "/quote": () => json(feeQuote) })).quote({ ...request, feeBps: 100 });
+    expect(route).toMatchObject({
+      amountOut: "930760823212813",
+      minAmountOut: "926107019096748",
+      fees: { networkUsd: feeQuote.quote.gasFeeUSD, integrator: "0.000009401624476897 ETH" },
+    });
+  });
+
+  it("takes the fee's share out of native output when tracking", async () => {
+    const getReceipt = vi.fn(async () => ({
+      status: "success",
+      from: AGENT,
+      to: "0xrouter",
+      // The router unwraps the whole output, then pays the fee wallet its share.
+      logs: [
+        {
+          address: "0x4200000000000000000000000000000000000006",
+          topics: ["0x7fcf532c15f0a6db0bd6d0e038bea71d30d808c7d98cb3bf7268a95bf5081b65", "0x"],
+          data: "0x" + BigInt(feeQuote.quote.output.amount).toString(16),
+        },
+      ],
+    }));
+    const uniswap = createUniswapVenue({ apiKey: "k", fetch: fakeFetch({}), getReceipt: getReceipt as never, feeRecipient: FEE_WALLET });
+    const [route] = await withFee(fakeFetch({ "/quote": () => json(feeQuote) })).quote({ ...request, feeBps: 100 });
+    const result = await uniswap.track!({
+      route: route!,
+      request,
+      prepared: { transactions: [{ kind: "swap", chainId: 8453, to: "0xRouter", data: "0xswap", value: "0x0" }] },
+      txHashes: ["0xhash"],
+      venueSwapId: null,
+    });
+    expect(result).toEqual({ status: "completed", amountReceived: "0.000930760823212813" });
   });
 });
 

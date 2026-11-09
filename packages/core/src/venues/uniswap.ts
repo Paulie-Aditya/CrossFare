@@ -1,4 +1,4 @@
-import { getAsset, toBaseUnits, type Asset, type UniswapToken } from "../assets.ts";
+import { displaySymbol, getAsset, toBaseUnits, type Asset, type UniswapToken } from "../assets.ts";
 import { evmChainById } from "../evm-chains.ts";
 import { fromBaseUnits, type Route } from "../routes.ts";
 import {
@@ -29,7 +29,9 @@ interface ApiTransaction {
 }
 
 interface AggregatedOutput {
+  amount?: string;
   minAmount?: string;
+  bps?: number;
   fee?: string;
 }
 
@@ -66,6 +68,8 @@ export interface UniswapOptions {
   now?: () => Date;
   /** Reads a transaction receipt, returning null until it is mined. */
   getReceipt?: GetReceipt;
+  /** Receives the fee a request asks for. Without it no fee is charged. */
+  feeRecipient?: string;
 }
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
@@ -76,13 +80,14 @@ const topicAddress = (topic: string | undefined) => `0x${(topic ?? "").slice(-40
 
 /**
  * Native output arrives through an internal call, which leaves no log of its own,
- * so the wrapped coin's unwrap stands in for the amount delivered. Null where that coin isn't known.
+ * so the wrapped coin's unwrap stands in for the amount delivered, less the share the router
+ * then pays an integrator fee. Null where that coin isn't known.
  */
-function deliveredAmount(receipt: ChainReceipt, token: UniswapToken, recipient: string): bigint | null {
+function deliveredAmount(receipt: ChainReceipt, token: UniswapToken, recipient: string, feeBps: number): bigint | null {
   const native = token.address === NATIVE_TOKEN;
   const wrapped = evmChainById(token.chainId)?.wrappedNative ?? "";
   if (native && !wrapped) return null;
-  return receipt.logs.reduce((sum, log) => {
+  const total = receipt.logs.reduce((sum, log) => {
     if (native) {
       const isUnwrap = sameAddress(log.address, wrapped) && log.topics[0] === WETH_WITHDRAWAL_TOPIC;
       return isUnwrap ? sum + BigInt(log.data) : sum;
@@ -93,6 +98,7 @@ function deliveredAmount(receipt: ChainReceipt, token: UniswapToken, recipient: 
       sameAddress(topicAddress(log.topics[2]), recipient);
     return isTransfer ? sum + BigInt(log.data) : sum;
   }, 0n);
+  return native ? total - (total * BigInt(feeBps)) / 10_000n : total;
 }
 
 function samePairChain(from: Asset, to: Asset): { in: UniswapToken; out: UniswapToken } | null {
@@ -100,12 +106,20 @@ function samePairChain(from: Asset, to: Asset): { in: UniswapToken; out: Uniswap
   return { in: from.uniswap, out: to.uniswap };
 }
 
+const callerOutputs = (quote: ApiQuote) => quote.aggregatedOutputs?.filter((output) => !output.fee) ?? [];
+const feeOutputs = (quote: ApiQuote) => quote.aggregatedOutputs?.filter((output) => output.fee) ?? [];
+const sum = (amounts: (string | undefined)[]) => amounts.reduce((total, amount) => total + BigInt(amount ?? 0), 0n);
+
+/** What reaches the caller. An exact-in output includes the integrator fee, which isn't theirs. */
+function callerAmount(quote: ApiQuote): string {
+  const outputs = callerOutputs(quote).filter((output) => output.amount);
+  return outputs.length ? sum(outputs.map((output) => output.amount)).toString() : quote.output.amount;
+}
+
 /** Uses the outputs that reach the caller; integrator fee entries are not theirs. */
 function minimumOutput(quote: ApiQuote, slippageBps: number): string {
-  const outputs = quote.aggregatedOutputs?.filter((output) => !output.fee && output.minAmount);
-  if (outputs?.length) {
-    return outputs.reduce((sum, output) => sum + BigInt(output.minAmount!), 0n).toString();
-  }
+  const outputs = callerOutputs(quote).filter((output) => output.minAmount);
+  if (outputs.length) return sum(outputs.map((output) => output.minAmount)).toString();
   return ((BigInt(quote.output.amount) * BigInt(10_000 - slippageBps)) / 10_000n).toString();
 }
 
@@ -164,6 +178,7 @@ export function createUniswapVenue(options: UniswapOptions): Venue {
         ...(request.indicative ? {} : { recipient: request.to.address }),
         slippageTolerance: request.slippageBps / 100,
         protocols: ["V2", "V3", "V4"],
+        ...(options.feeRecipient && request.feeBps ? { integratorFees: [{ bips: request.feeBps, recipient: options.feeRecipient }] } : {}),
       });
       if (response.status === 404) return [];
       if (!response.ok) {
@@ -172,6 +187,7 @@ export function createUniswapVenue(options: UniswapOptions): Venue {
 
       const { routing, quote } = (await response.json()) as QuoteResponse;
       if (routing !== "CLASSIC") return [];
+      const fee = sum(feeOutputs(quote).map((output) => output.amount));
 
       return [
         {
@@ -179,9 +195,12 @@ export function createUniswapVenue(options: UniswapOptions): Venue {
           from: from.id,
           to: to.id,
           amountIn: quote.input.amount,
-          amountOut: quote.output.amount,
+          amountOut: callerAmount(quote),
           minAmountOut: minimumOutput(quote, request.slippageBps),
-          fees: quote.gasFeeUSD ? { networkUsd: quote.gasFeeUSD } : {},
+          fees: {
+            ...(quote.gasFeeUSD ? { networkUsd: quote.gasFeeUSD } : {}),
+            ...(fee > 0n ? { integrator: `${fromBaseUnits(fee.toString(), to.decimals)} ${displaySymbol(to.symbol)}` } : {}),
+          },
           etaSeconds: 30,
           validUntil: new Date(now().getTime() + QUOTE_TTL_MS).toISOString(),
           venueData: { quote },
@@ -230,7 +249,9 @@ export function createUniswapVenue(options: UniswapOptions): Venue {
 
       const output = getAsset(route.to);
       if (!output.uniswap) return { status: "completed" };
-      const amount = deliveredAmount(receipt, output.uniswap, request.to.address);
+      const quote = (route.venueData as { quote?: ApiQuote } | null)?.quote;
+      const feeBps = quote ? feeOutputs(quote).reduce((total, output) => total + (output.bps ?? 0), 0) : 0;
+      const amount = deliveredAmount(receipt, output.uniswap, request.to.address, feeBps);
       // With no wrapped coin to measure by, the quote's amount stands.
       if (amount === null) return { status: "completed" };
       return {

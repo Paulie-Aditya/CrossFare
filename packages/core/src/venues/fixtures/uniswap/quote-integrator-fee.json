@@ -1,0 +1,138 @@
+{
+  "requestId": "a3618607d19543c5120ec388efa6a057",
+  "routing": "CLASSIC",
+  "isTokenApprovalApplicable": true,
+  "permitData": null,
+  "permitTransaction": null,
+  "quote": {
+    "chainId": 8453,
+    "swapper": "0x000000000000000000000000000000000000dEaD",
+    "tradeType": "EXACT_INPUT",
+    "route": [
+      [
+        {
+          "type": "v3-pool",
+          "address": "0xb4CB800910B228ED3d0834cF79D697127BBB00e5",
+          "tokenIn": {
+            "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "chainId": 8453,
+            "symbol": "USDC",
+            "decimals": "6"
+          },
+          "tokenOut": {
+            "address": "0x4200000000000000000000000000000000000006",
+            "chainId": 8453,
+            "symbol": "WETH",
+            "decimals": "18"
+          },
+          "sqrtRatioX96": "3654022931027955598851206",
+          "liquidity": "64019499413859199",
+          "tickCurrent": "-199696",
+          "fee": "100",
+          "amountIn": "2000000",
+          "amountOut": "930760823212813"
+        }
+      ]
+    ],
+    "input": {
+      "amount": "2000000",
+      "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "maximumAmount": "2000000"
+    },
+    "output": {
+      "amount": "940162447689710",
+      "token": "0x0000000000000000000000000000000000000000",
+      "recipient": "0x000000000000000000000000000000000000dEaD",
+      "minimumAmount": "926107019096748"
+    },
+    "slippage": 0.5,
+    "priceImpact": 0.01,
+    "priceDifference": 0.01,
+    "gasFee": "1718853079734",
+    "gasFeeUSD": "0.0025543561909093324",
+    "gasFeeQuote": "1200000000000",
+    "gasUseEstimate": "200000",
+    "routeString": "[v3] 100.00% = [0.01%] 0xb4CB800910B228ED3d0834cF79D697127BBB00e5",
+    "blockNumber": "55261884",
+    "quoteId": "01a1c133-af6f-8000-bbbe-7ff1967c0100",
+    "maxFeePerGas": "8500000",
+    "maxPriorityFeePerGas": "1000000",
+    "txFailureReasons": [
+      "SIMULATION_ERROR"
+    ],
+    "gasEstimates": [
+      {
+        "type": "eip1559",
+        "strategy": {
+          "limitInflationFactor": 1.15,
+          "priceInflationFactor": 1,
+          "percentileThresholdFor1559Fee": 25,
+          "minPriorityFeeGwei": 1,
+          "maxPriorityFeeGwei": 1.8,
+          "baseFeeMultiplier": 1.05,
+          "baseFeeHistoryWindow": 100,
+          "minPriorityFeeRatioOfBaseFee": 0.2,
+          "thresholdToInflateLastBlockBaseFee": 0
+        },
+        "gasLimit": "61861",
+        "gasFee": "533230120440",
+        "maxPriorityFeePerGas": "1000000",
+        "maxFeePerGas": "8500000"
+      }
+    ],
+    "aggregatedOutputs": [
+      {
+        "amount": "930760823212813",
+        "token": "0x0000000000000000000000000000000000000000",
+        "recipient": "0x000000000000000000000000000000000000dEaD",
+        "bps": 9900,
+        "minAmount": "926107019096748"
+      },
+      {
+        "amount": "9401624476897",
+        "token": "0x0000000000000000000000000000000000000000",
+        "recipient": "0xEBdFd05075d84435de2d9A05336E7b2814e10cb5",
+        "bps": 100,
+        "fee": "INTEGRATOR",
+        "minAmount": "9354616354512"
+      }
+    ],
+    "routeGraph": {
+      "pools": [
+        {
+          "protocol": "V3",
+          "address": "0xb4CB800910B228ED3d0834cF79D697127BBB00e5",
+          "fee": "100",
+          "tokenIn": {
+            "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "chainId": 8453,
+            "symbol": "USDC"
+          },
+          "tokenOut": {
+            "address": "0x4200000000000000000000000000000000000006",
+            "chainId": 8453,
+            "symbol": "WETH",
+            "decimals": "18"
+          },
+          "shareOfInputBps": 10000
+        },
+        {
+          "protocol": "WRAP",
+          "tokenIn": {
+            "address": "0x4200000000000000000000000000000000000006",
+            "chainId": 8453,
+            "symbol": "WETH",
+            "decimals": "18"
+          },
+          "tokenOut": {
+            "address": "0x0000000000000000000000000000000000000000",
+            "chainId": 8453,
+            "symbol": "ETH",
+            "decimals": "18"
+          },
+          "shareOfInputBps": 10000
+        }
+      ]
+    }
+  }
+}
