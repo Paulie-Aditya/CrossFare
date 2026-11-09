@@ -11,8 +11,19 @@ export interface QuoteRequest {
   flexibleDeposit?: boolean;
   /** A price check with no addresses behind it. It can't be executed. */
   indicative?: boolean;
-  /** Crossfare's fee on this caller's swap, in basis points. Only Uniswap charges it per request so far. */
-  feeBps?: number;
+  /** The caller's own fee on this swap. Crossfare takes none. */
+  fee?: CallerFee;
+}
+
+/**
+ * A fee the caller charges on its swap. Each venue pays it to the recipient it can reach:
+ * Uniswap to `evm` on the output chain, NEAR Intents to `near` (or `evm`, which is also an
+ * Intents account), THORChain to the `thorchain` THORName. A venue with no matching recipient
+ * charges nothing. SwapKit pays the operator's dashboard wallets, so its fee is owed to the caller.
+ */
+export interface CallerFee {
+  bps: number;
+  recipients: { evm?: string; near?: string; thorchain?: string };
 }
 
 export interface UnsignedTransaction {

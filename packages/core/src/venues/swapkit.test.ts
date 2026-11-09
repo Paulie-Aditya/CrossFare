@@ -65,7 +65,31 @@ describe("swapkit quote", () => {
       refundAddress: AGENT,
       slippage: 3,
       quoteType: "EXACT_INPUT",
+      affiliateFee: 0,
     });
+  });
+
+  it("asks for the caller's fee, and for none without one, so the dashboard's tiers never apply", async () => {
+    const fetch = fakeFetch({ "/v3/quote": () => json(quoteResponse) });
+    await venue(fetch).quote({ ...request, fee: { bps: 100, recipients: { evm: AGENT } } });
+    expect(JSON.parse(fetch.mock.calls[0]![1]?.body as string)).toMatchObject({ affiliateFee: 100 });
+  });
+
+  it("keeps the affiliate fee SwapKit reports, which it pays to the operator for the caller", async () => {
+    const withAffiliate = {
+      ...apiRoute,
+      fees: [...apiRoute.fees, { type: "affiliate", amount: "7.471192", amountBps: 100, asset: "SOL.USDC-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }],
+    };
+    const [route] = await venue(fakeFetch({ "/v3/quote": () => json({ routes: [withAffiliate] }) })).quote({ ...request, fee: { bps: 100, recipients: { evm: AGENT } } });
+    expect(route?.venueData).toMatchObject({
+      affiliateFee: { amount: "7.471192", asset: "SOL.USDC-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", bps: 100 },
+    });
+  });
+
+  it("keeps no affiliate fee where SwapKit charged none", async () => {
+    const zero = { ...apiRoute, fees: [...apiRoute.fees, { type: "affiliate", amount: "0", amountBps: 0, asset: "LTC.LTC" }] };
+    const [route] = await venue(fakeFetch({ "/v3/quote": () => json({ routes: [zero] }) })).quote({ ...request, fee: { bps: 100, recipients: { evm: AGENT } } });
+    expect(route?.venueData).not.toHaveProperty("affiliateFee");
   });
 
   it("asks for buyAmount on exact_out", async () => {

@@ -151,11 +151,16 @@ interface NearVenueData {
   destinationAsset: string;
 }
 
+/**
+ * The caller's Intents account for its fee: a named account, an implicit one or an EVM address.
+ * Null charges no fee.
+ */
+function feeRecipient(request: QuoteRequest): string | null {
+  const fee = request.fee;
+  return fee && fee.bps > 0 ? (fee.recipients.near ?? fee.recipients.evm ?? null) : null;
+}
+
 export interface NearIntentsOptions {
-  /** The Intents account that receives the app fee: a named account, an implicit one or an EVM address. */
-  feeRecipient: string;
-  /** Asked for on every quote. 1Click keeps half, and at least 20 bps, out of what the caller pays. */
-  feeBps: number;
   /** A 1Click partner key, sent when set. */
   apiKey?: string;
   fetch?: FetchLike;
@@ -187,6 +192,7 @@ export function createNearIntentsVenue(options: NearIntentsOptions): Venue {
   function ask(request: QuoteRequest, dry: boolean, data: NearVenueData): Promise<Response> {
     const exactIn = request.mode === "exact_in";
     const amountAsset = getAsset(exactIn ? request.from.asset : request.to.asset);
+    const recipient = feeRecipient(request);
     return fetchImpl(`${BASE_URL}/v0/quote`, {
       method: "POST",
       headers: headers({ "content-type": "application/json" }),
@@ -203,7 +209,8 @@ export function createNearIntentsVenue(options: NearIntentsOptions): Venue {
         recipient: request.to.address,
         recipientType: "DESTINATION_CHAIN",
         deadline: new Date(now().getTime() + DEADLINE_MS).toISOString(),
-        appFees: [{ recipient: options.feeRecipient, fee: options.feeBps }],
+        // 1Click keeps half of the app fee, and at least 20 bps, out of what the customer pays.
+        ...(recipient && request.fee ? { appFees: [{ recipient, fee: request.fee.bps }] } : {}),
         referral: "crossfare",
       }),
     });
@@ -228,7 +235,10 @@ export function createNearIntentsVenue(options: NearIntentsOptions): Venue {
       // 1Click answers 400 for a pair, amount or address it won't serve.
       if (response.status === 400) return [];
       if (!response.ok) throw new VenueError(VENUE, response.status, `/v0/quote returned ${response.status}`);
-      const { quote } = (await response.json()) as { quote: ApiQuote };
+      const { quote, quoteRequest } = (await response.json()) as { quote: ApiQuote; quoteRequest?: { appFees?: { recipient: string; fee: number }[] } };
+      // What reaches the caller, as 1Click restates the fees it will apply.
+      const recipient = feeRecipient(request);
+      const passedOn = recipient ? quoteRequest?.appFees?.find((fee) => fee.recipient === recipient)?.fee : undefined;
 
       const usdIn = Number(quote.amountInUsd);
       const usdOut = Number(quote.amountOutUsd);
@@ -241,7 +251,7 @@ export function createNearIntentsVenue(options: NearIntentsOptions): Venue {
           amountOut: quote.amountOut,
           minAmountOut: quote.minAmountOut,
           fees: {
-            app: `${options.feeBps} bps`,
+            ...(passedOn ? { integrator: `${passedOn} bps` } : {}),
             ...(quote.withdrawFee ? { withdraw: `${fromBaseUnits(quote.withdrawFee, to.decimals)} ${displaySymbol(to.symbol)}` } : {}),
           },
           etaSeconds: quote.timeEstimate ?? 0,

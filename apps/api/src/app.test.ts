@@ -1061,3 +1061,89 @@ describe("a deposit that differs from the quote", () => {
   });
 });
 
+
+describe("the caller's fee", () => {
+  const FEE_WALLET = "0xebdfd05075d84435de2d9a05336e7b2814e10cb5";
+  const asked = (venue: ReturnType<typeof fakeVenue>) => venue.quote.mock.calls[0]![0] as { fee?: unknown };
+
+  it("goes to the venues as the caller set it", async () => {
+    const venue = fakeVenue("uniswap", [route("uniswap", "100")]);
+    const fee = { bps: 100, recipients: { evm: FEE_WALLET, near: "coindrop.near", thorchain: "cd" } };
+    expect((await postQuote(app([venue]), { ...quoteBody, fee })).status).toBe(200);
+    expect(asked(venue).fee).toEqual(fee);
+  });
+
+  it("is absent when the caller sets none", async () => {
+    const venue = fakeVenue("uniswap", [route("uniswap", "100")]);
+    await postQuote(app([venue]));
+    expect(asked(venue)).not.toHaveProperty("fee");
+  });
+
+  it.each([
+    ["no recipient", { bps: 100, recipients: {} }],
+    ["no recipients object", { bps: 100 }],
+    ["zero bps", { bps: 0, recipients: { evm: FEE_WALLET } }],
+    ["more than 500 bps", { bps: 501, recipients: { evm: FEE_WALLET } }],
+    ["fractional bps", { bps: 1.5, recipients: { evm: FEE_WALLET } }],
+    ["a bad EVM wallet", { bps: 100, recipients: { evm: "0x123" } }],
+    ["a bad NEAR account", { bps: 100, recipients: { near: "Not A Name!" } }],
+    ["a bad THORName", { bps: 100, recipients: { thorchain: "far-too-long-to-be-a-thorname-at-all" } }],
+  ])("is refused with %s, before payment or any venue", async (_case, fee) => {
+    const venue = fakeVenue("uniswap", [route("uniswap", "100")]);
+    const response = await postQuote(app([venue]), { ...quoteBody, fee });
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as any).error).toMatch(/fee/);
+    expect(venue.quote).not.toHaveBeenCalled();
+    expect(settle).not.toHaveBeenCalled();
+  });
+});
+
+describe("SwapKit fees owed to callers", () => {
+  const FEE_WALLET = "0xebdfd05075d84435de2d9a05336e7b2814e10cb5";
+  const affiliateFee = { amount: "0.01", asset: "LTC.LTC", bps: 100 };
+
+  async function swapped(venueData: unknown, track: () => Promise<unknown>) {
+    const venue = fakeVenue("swapkit", [route("swapkit", "100", { provider: "near", venueData })]);
+    (venue as unknown as { track: unknown }).track = vi.fn(track);
+    const target = app([venue]);
+    const fee = { bps: 100, recipients: { evm: FEE_WALLET } };
+    const quoted = (await (await postQuote(target, { ...quoteBody, fee })).json()) as any;
+    const swap = (await (
+      await target.request("/v1/swap", { method: "POST", body: JSON.stringify({ quoteId: quoted.routes[0].quoteId, swapToken: quoted.swapToken }) })
+    ).json()) as any;
+    return { target, swapId: swap.swapId as string, quoteId: quoted.routes[0].quoteId as string };
+  }
+  const month = () => store.listSwapKitFees("2026-11-01T00:00:00.000Z", "2026-12-01T00:00:00.000Z");
+
+  it("are recorded for the caller when the swap completes, once", async () => {
+    const { target, swapId, quoteId } = await swapped({ routeId: "r", affiliateFee }, async () => ({ status: "completed", amountReceived: "0.5" }));
+    await target.request(`/v1/swaps/${swapId}`);
+    currentTime = new Date(NOW.getTime() + 60_000);
+    await target.request(`/v1/swaps/${swapId}`);
+    expect(month()).toEqual([
+      {
+        swapId,
+        quoteId,
+        payer: "0.0.51234",
+        provider: "near",
+        bps: 100,
+        amount: "0.01",
+        asset: "LTC.LTC",
+        recipients: { evm: FEE_WALLET },
+        at: NOW.toISOString(),
+      },
+    ]);
+  });
+
+  it("are not recorded for a refund", async () => {
+    const { target, swapId } = await swapped({ routeId: "r", affiliateFee }, async () => ({ status: "refunded" }));
+    await target.request(`/v1/swaps/${swapId}`);
+    expect(month()).toEqual([]);
+  });
+
+  it("are not recorded where SwapKit charged none", async () => {
+    const { target, swapId } = await swapped({ routeId: "r" }, async () => ({ status: "completed" }));
+    await target.request(`/v1/swaps/${swapId}`);
+    expect(month()).toEqual([]);
+  });
+});

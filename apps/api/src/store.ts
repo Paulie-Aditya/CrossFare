@@ -43,6 +43,24 @@ export interface DepositDetails {
 
 export type VipScope = "quote" | "swap";
 
+/**
+ * A caller's fee on a completed SwapKit swap. SwapKit paid it to the operator's dashboard wallet,
+ * so it is owed to the caller. The amount is SwapKit's quote; a flexible deposit can differ.
+ */
+export interface SwapKitFee {
+  swapId: string;
+  quoteId: string;
+  payer: string;
+  provider: string;
+  bps: number;
+  amount: string;
+  /** SwapKit's identifier, such as LTC.LTC. */
+  asset: string;
+  /** Where the caller asked to be paid. */
+  recipients: Record<string, string>;
+  at: string;
+}
+
 /** A caller that skips x402. Only the key's SHA-256 is stored. */
 export interface VipKeyRecord {
   id: string;
@@ -54,8 +72,6 @@ export interface VipKeyRecord {
   ratePerMinute: number | null;
   /** Metered calls per calendar month (UTC). Null means no limit. */
   monthlyQuota: number | null;
-  /** Crossfare's fee on this caller's swaps, in basis points. Absent or null means the server's default. */
-  feeBps?: number | null;
   createdAt: string;
   revokedAt?: string | null;
 }
@@ -96,8 +112,10 @@ export interface Store {
   listVipKeys(): VipKeyRecord[];
   /** Returns false when no key has this ID. */
   revokeVipKey(id: string, at: string): boolean;
-  /** Null returns the key to the server's default fee. False when no key has this ID. */
-  setVipKeyFee(id: string, feeBps: number | null): boolean;
+  /** Keeps the first record for a swap; later ones for the same swap are ignored. */
+  recordSwapKitFee(fee: SwapKitFee): void;
+  /** Fees recorded from `since` up to, not including, `until`. */
+  listSwapKitFees(since: string, until: string): SwapKitFee[];
   recordVipUsage(usage: VipUsage): void;
   countVipUsage(keyId: string, since: string): number;
   /** Calls per key and endpoint from since (inclusive) to until (exclusive). */
@@ -145,7 +163,6 @@ const SCHEMA = `
     scopes TEXT NOT NULL,
     rate_per_minute INTEGER,
     monthly_quota INTEGER,
-    fee_bps INTEGER,
     created_at TEXT NOT NULL,
     revoked_at TEXT
   );
@@ -157,6 +174,17 @@ const SCHEMA = `
     at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS vip_usage_key_at ON vip_usage (key_id, at);
+  CREATE TABLE IF NOT EXISTS swapkit_fees (
+    swap_id TEXT PRIMARY KEY,
+    quote_id TEXT NOT NULL,
+    payer TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    bps INTEGER NOT NULL,
+    amount TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    recipients TEXT NOT NULL,
+    at TEXT NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS unlisted_assets (
     id TEXT PRIMARY KEY,
     asset TEXT NOT NULL
@@ -189,7 +217,6 @@ function toVipKey(row: Record<string, string | number | null> | undefined): VipK
     scopes: JSON.parse(row.scopes as string) as VipScope[],
     ratePerMinute: (row.rate_per_minute as number | null) ?? null,
     monthlyQuota: (row.monthly_quota as number | null) ?? null,
-    feeBps: (row.fee_bps as number | null) ?? null,
     createdAt: row.created_at as string,
     revokedAt: (row.revoked_at as string | null) ?? null,
   };
@@ -204,7 +231,7 @@ export function createStore(path: string): Store {
   if (!hasColumn("swaps", "deposit_details")) {
     db.exec("ALTER TABLE swaps ADD COLUMN deposit_details TEXT NOT NULL DEFAULT '{}'");
   }
-  if (!hasColumn("vip_keys", "fee_bps")) db.exec("ALTER TABLE vip_keys ADD COLUMN fee_bps INTEGER");
+
 
   return {
     claimPayment(fingerprint, endpoint) {
@@ -325,9 +352,9 @@ export function createStore(path: string): Store {
 
     saveVipKey(key) {
       db.prepare(
-        `INSERT INTO vip_keys (id, label, key_hash, scopes, rate_per_minute, monthly_quota, fee_bps, created_at, revoked_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(key.id, key.label, key.keyHash, JSON.stringify(key.scopes), key.ratePerMinute, key.monthlyQuota, key.feeBps ?? null, key.createdAt, key.revokedAt ?? null);
+        `INSERT INTO vip_keys (id, label, key_hash, scopes, rate_per_minute, monthly_quota, created_at, revoked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(key.id, key.label, key.keyHash, JSON.stringify(key.scopes), key.ratePerMinute, key.monthlyQuota, key.createdAt, key.revokedAt ?? null);
     },
 
     getVipKeyByHash(keyHash) {
@@ -345,8 +372,26 @@ export function createStore(path: string): Store {
       return true;
     },
 
-    setVipKeyFee(id, feeBps) {
-      return db.prepare("UPDATE vip_keys SET fee_bps = ? WHERE id = ?").run(feeBps, id).changes > 0;
+    recordSwapKitFee(fee) {
+      db.prepare(
+        `INSERT OR IGNORE INTO swapkit_fees (swap_id, quote_id, payer, provider, bps, amount, asset, recipients, at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(fee.swapId, fee.quoteId, fee.payer, fee.provider, fee.bps, fee.amount, fee.asset, JSON.stringify(fee.recipients), fee.at);
+    },
+
+    listSwapKitFees(since, until) {
+      const rows = db.prepare("SELECT * FROM swapkit_fees WHERE at >= ? AND at < ? ORDER BY at, swap_id").all(since, until) as Record<string, string | number>[];
+      return rows.map((row) => ({
+        swapId: row.swap_id as string,
+        quoteId: row.quote_id as string,
+        payer: row.payer as string,
+        provider: row.provider as string,
+        bps: row.bps as number,
+        amount: row.amount as string,
+        asset: row.asset as string,
+        recipients: JSON.parse(row.recipients as string) as Record<string, string>,
+        at: row.at as string,
+      }));
     },
 
     recordVipUsage(usage) {

@@ -5,18 +5,15 @@ import { generateVipKey, hashVipKey, isValidVipLabel } from "./vip.ts";
 
 /**
  * Issues and manages VIP keys in the API's database. Run it next to the server:
- *   node --env-file=<env> src/vip-cli.ts create <label> [--scopes quote,swap] [--rate 60] [--quota N] [--fee-bps N]
+ *   node --env-file=<env> src/vip-cli.ts create <label> [--scopes quote,swap] [--rate 60] [--quota N]
  *   node --env-file=<env> src/vip-cli.ts list
- *   node --env-file=<env> src/vip-cli.ts fee <key-id> <bps|default>
  *   node --env-file=<env> src/vip-cli.ts revoke <key-id>
  *   node --env-file=<env> src/vip-cli.ts usage [--month YYYY-MM]
+ *   node --env-file=<env> src/vip-cli.ts earnings [--month YYYY-MM]
  */
 
 const SCOPES: readonly VipScope[] = ["quote", "swap"];
 const DEFAULT_RATE_PER_MINUTE = 60;
-/** Uniswap refuses an integrator fee above 500 bips. */
-const MAX_FEE_BPS = 500;
-const FEE_HELP = `a fee is a whole number of basis points from 0 to ${MAX_FEE_BPS}`;
 
 interface CliDeps {
   store: Store;
@@ -36,11 +33,21 @@ function count(value: string | undefined): number | null | "invalid" {
   return /^[1-9][0-9]*$/.test(value) ? Number(value) : "invalid";
 }
 
-/** Basis points within Uniswap's cap, or null when the option is absent. */
-function fee(value: string | undefined): number | null | "invalid" {
-  if (value === undefined) return null;
-  return /^(0|[1-9][0-9]*)$/.test(value) && Number(value) <= MAX_FEE_BPS ? Number(value) : "invalid";
+/** Adds two non-negative decimal strings exactly. */
+function addDecimals(a: string, b: string): string {
+  const places = Math.max(a.split(".")[1]?.length ?? 0, b.split(".")[1]?.length ?? 0);
+  const scaled = (value: string) => {
+    const [whole, fraction = ""] = value.split(".");
+    return BigInt(whole + fraction.padEnd(places, "0"));
+  };
+  const digits = (scaled(a) + scaled(b)).toString().padStart(places + 1, "0");
+  const whole = digits.slice(0, digits.length - places);
+  const fraction = digits.slice(digits.length - places).replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole;
 }
+
+/** A CSV field, quoted when it holds a comma or a quote. */
+const csv = (value: string) => (/[",]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value);
 
 const monthStart = (year: number, month: number) => new Date(Date.UTC(year, month, 1)).toISOString();
 
@@ -54,6 +61,18 @@ export function runVipCommand(args: string[], deps: CliDeps): number {
     return 1;
   };
   const [command, first] = args;
+  /** A calendar month (UTC), the current one when none is given. Null when it can't be read. */
+  const monthOf = (month: string | undefined) => {
+    let year = now().getUTCFullYear();
+    let index = now().getUTCMonth();
+    if (month) {
+      const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
+      if (!match) return null;
+      year = Number(match[1]);
+      index = Number(match[2]) - 1;
+    }
+    return { since: monthStart(year, index), until: monthStart(year, index + 1) };
+  };
 
   switch (command) {
     case "create": {
@@ -68,8 +87,6 @@ export function runVipCommand(args: string[], deps: CliDeps): number {
       if (rate === "invalid") return fail("--rate must be a whole number of requests a minute, at least 1");
       const quota = count(option(args, "quota"));
       if (quota === "invalid") return fail("--quota must be a whole number of calls a month, at least 1");
-      const feeBps = fee(option(args, "fee-bps"));
-      if (feeBps === "invalid") return fail(`--fee-bps: ${FEE_HELP}`);
 
       const key = generateVipKey();
       const id = newId();
@@ -80,33 +97,21 @@ export function runVipCommand(args: string[], deps: CliDeps): number {
         scopes: [...new Set(scopes)],
         ratePerMinute: rate ?? DEFAULT_RATE_PER_MINUTE,
         monthlyQuota: quota,
-        feeBps,
         createdAt: now().toISOString(),
       });
-      const feeText = feeBps === null ? "the default fee" : `fee ${feeBps} bps`;
-      print(`Created ${id} for "${first}" (scopes ${scopes.join(",")}, ${rate ?? DEFAULT_RATE_PER_MINUTE}/min, quota ${quota ?? "none"}, ${feeText}).`);
+      print(`Created ${id} for "${first}" (scopes ${scopes.join(",")}, ${rate ?? DEFAULT_RATE_PER_MINUTE}/min, quota ${quota ?? "none"}).`);
       print(`Key, shown only now: ${key}`);
       return 0;
     }
 
     case "list": {
       const since = monthStart(now().getUTCFullYear(), now().getUTCMonth());
-      print("id,label,scopes,rate_per_minute,monthly_quota,fee_bps,calls_this_month,created_at,revoked_at");
+      print("id,label,scopes,rate_per_minute,monthly_quota,calls_this_month,created_at,revoked_at");
       for (const key of store.listVipKeys()) {
         print(
-          [key.id, key.label, key.scopes.join(" "), key.ratePerMinute ?? "", key.monthlyQuota ?? "", key.feeBps ?? "default", store.countVipUsage(key.id, since), key.createdAt, key.revokedAt ?? ""].join(","),
+          [key.id, key.label, key.scopes.join(" "), key.ratePerMinute ?? "", key.monthlyQuota ?? "", store.countVipUsage(key.id, since), key.createdAt, key.revokedAt ?? ""].join(","),
         );
       }
-      return 0;
-    }
-
-    case "fee": {
-      const value = args[2];
-      if (!first || value === undefined) return fail("Give the key ID, from `list`, and a fee in basis points or `default`.");
-      const feeBps = value === "default" ? null : fee(value);
-      if (feeBps === "invalid") return fail(`Not a fee: ${FEE_HELP}, or \`default\`.`);
-      if (!store.setVipKeyFee(first, feeBps)) return fail(`No key with ID ${first}.`);
-      print(`${first} now pays ${feeBps === null ? "the default fee" : `${feeBps} bps`} on new quotes.`);
       return 0;
     }
 
@@ -118,24 +123,35 @@ export function runVipCommand(args: string[], deps: CliDeps): number {
     }
 
     case "usage": {
-      const month = option(args, "month");
-      let year = now().getUTCFullYear();
-      let index = now().getUTCMonth();
-      if (month) {
-        const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
-        if (!match) return fail("--month takes YYYY-MM");
-        year = Number(match[1]);
-        index = Number(match[2]) - 1;
-      }
+      const period = monthOf(option(args, "month"));
+      if (!period) return fail("--month takes YYYY-MM");
       print("label,key_id,endpoint,calls");
-      for (const line of store.vipUsageSummary(monthStart(year, index), monthStart(year, index + 1))) {
+      for (const line of store.vipUsageSummary(period.since, period.until)) {
         print([line.label, line.keyId, line.endpoint, line.calls].join(","));
       }
       return 0;
     }
 
+    case "earnings": {
+      // What each caller earned on SwapKit swaps, which SwapKit paid to the operator's wallets.
+      const period = monthOf(option(args, "month"));
+      if (!period) return fail("--month takes YYYY-MM");
+      const totals = new Map<string, { payer: string; asset: string; swaps: number; amount: string; recipients: string }>();
+      for (const fee of store.listSwapKitFees(period.since, period.until)) {
+        const recipients = JSON.stringify(fee.recipients);
+        const key = `${fee.payer}\n${fee.asset}\n${recipients}`;
+        const total = totals.get(key) ?? { payer: fee.payer, asset: fee.asset, swaps: 0, amount: "0", recipients };
+        totals.set(key, { ...total, swaps: total.swaps + 1, amount: addDecimals(total.amount, fee.amount) });
+      }
+      print("payer,asset,swaps,amount,recipients");
+      for (const total of totals.values()) {
+        print([csv(total.payer), csv(total.asset), total.swaps, total.amount, csv(total.recipients)].join(","));
+      }
+      return 0;
+    }
+
     default:
-      return fail("Commands: create <label> [--scopes quote,swap] [--rate N] [--quota N] [--fee-bps N] | list | fee <id> <bps|default> | revoke <id> | usage [--month YYYY-MM]");
+      return fail("Commands: create <label> [--scopes quote,swap] [--rate N] [--quota N] | list | revoke <id> | usage [--month YYYY-MM] | earnings [--month YYYY-MM]");
   }
 }
 

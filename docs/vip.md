@@ -2,7 +2,7 @@
 
 A VIP key lets a service call Crossfare without paying x402 for each request. It is meant for integrators, such as a wallet's backend, that make many calls and settle usage some other way. Everyone else keeps paying per call, exactly as before.
 
-This covers FR-29 to FR-32 in the [requirements](prd.md). The x402-paid pass for agents (FR-33) isn't built yet.
+This covers FR-29 to FR-32 in the [requirements](prd.md). The x402-paid pass for agents (FR-33) isn't built yet. A key doesn't change fees: any caller can add its own fee to its swaps, as [fees](fees.md) explains.
 
 ## What a key changes
 
@@ -97,11 +97,11 @@ Keys live in the API's SQLite database, next to quotes and swaps. The command ru
 
 | Command | Does |
 | --- | --- |
-| `create <label> [--scopes quote,swap] [--rate N] [--quota N] [--fee-bps N]` | Issues a key and prints it once. Defaults: both scopes, 60 requests a minute, no monthly quota, the server's default fee |
-| `list` | Every key with its limits, fee and this month's calls. Never prints a key or hash |
-| `fee <key-id> <bps\|default>` | Changes the key's fee on Uniswap swaps, from 0 to 500 bps, or returns it to `UNISWAP_FEE_BPS`. Applies to new quotes |
+| `create <label> [--scopes quote,swap] [--rate N] [--quota N]` | Issues a key and prints it once. Defaults: both scopes, 60 requests a minute, no monthly quota |
+| `list` | Every key with its limits and this month's calls. Never prints a key or hash |
 | `revoke <key-id>` | Stops a key at once |
 | `usage [--month YYYY-MM]` | Metered calls per key and endpoint for a month, as CSV for billing. Defaults to this month |
+| `earnings [--month YYYY-MM]` | Callers' fees on completed SwapKit swaps, which SwapKit paid to the operator, totalled per payer and asset as CSV for payouts. See [fees](fees.md) |
 
 The label is public: it's the payer on every Arkiv record the key creates. Use lower-case letters, digits and hyphens, up to 32 characters.
 

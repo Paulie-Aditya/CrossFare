@@ -13,15 +13,10 @@ export interface Config {
   facilitatorUrl: string;
   /** Unset means POST /v1/swap is free. */
   swapPriceUsd?: string;
-  /**
-   * Charges Crossfare's fee on Uniswap swaps, paid to this wallet. A VIP key's own fee wins over the default.
-   * Null charges nothing.
-   */
-  uniswapFee: { recipient: string; defaultBps: number } | null;
   /** Swaps through NEAR Intents' 1Click API directly. Null leaves NEAR routes to SwapKit. */
-  nearIntents: { feeRecipient: string; feeBps: number; apiKey?: string } | null;
+  nearIntents: { apiKey?: string } | null;
   /** Swaps through a THORNode directly. Null leaves THORChain routes to SwapKit. */
-  thorchain: { affiliate: string; affiliateBps: number; thornodeUrl?: string } | null;
+  thorchain: { thornodeUrl?: string } | null;
   /** RPC endpoints by EVM chain ID. A chain without one uses its public RPCs. */
   rpcUrls: Record<number, string>;
   port: number;
@@ -57,37 +52,24 @@ function rpcUrls(env: Record<string, string | undefined>): Record<number, string
   return urls;
 }
 
-/** 1Click caps its fees and the app's together at 500 bps; THORChain caps an affiliate at 1000; Uniswap caps one at 500. */
-function feeBps(env: Record<string, string | undefined>, name: string, max: number): number {
-  const value = env[name] ?? "";
-  if (!/^\d+$/.test(value) || Number(value) > max) throw new Error(`${name} must be a whole number of basis points from 0 to ${max}`);
-  return Number(value);
-}
-
-function uniswapFee(env: Record<string, string | undefined>): Config["uniswapFee"] {
-  const recipient = env.UNISWAP_FEE_RECIPIENT;
-  if (!recipient) return null;
-  if (!/^0x[0-9a-fA-F]{40}$/.test(recipient)) throw new Error("UNISWAP_FEE_RECIPIENT must be an EVM address");
-  // Uniswap refuses an integrator fee above 500 bips.
-  return { recipient, defaultBps: env.UNISWAP_FEE_BPS ? feeBps(env, "UNISWAP_FEE_BPS", 500) : 0 };
-}
+/** Settings from when Crossfare set the fee. Callers set their own now, so these would do nothing. */
+const RETIRED = [
+  "NEAR_INTENTS_FEE_RECIPIENT",
+  "NEAR_INTENTS_FEE_BPS",
+  "THORCHAIN_AFFILIATE",
+  "THORCHAIN_AFFILIATE_BPS",
+  "UNISWAP_FEE_RECIPIENT",
+  "UNISWAP_FEE_BPS",
+] as const;
 
 function directVenues(env: Record<string, string | undefined>): Pick<Config, "nearIntents" | "thorchain"> {
+  const retired = RETIRED.filter((name) => env[name]);
+  if (retired.length) {
+    throw new Error(`Remove ${retired.join(", ")}: callers set their own fee now. Turn direct venues on with NEAR_INTENTS_DIRECT or THORCHAIN_DIRECT.`);
+  }
   return {
-    nearIntents: env.NEAR_INTENTS_FEE_RECIPIENT
-      ? {
-          feeRecipient: env.NEAR_INTENTS_FEE_RECIPIENT,
-          feeBps: feeBps(env, "NEAR_INTENTS_FEE_BPS", 500),
-          ...(env.NEAR_INTENTS_API_KEY ? { apiKey: env.NEAR_INTENTS_API_KEY } : {}),
-        }
-      : null,
-    thorchain: env.THORCHAIN_AFFILIATE
-      ? {
-          affiliate: env.THORCHAIN_AFFILIATE,
-          affiliateBps: feeBps(env, "THORCHAIN_AFFILIATE_BPS", 1000),
-          ...(env.THORNODE_URL ? { thornodeUrl: env.THORNODE_URL } : {}),
-        }
-      : null,
+    nearIntents: env.NEAR_INTENTS_DIRECT === "true" ? (env.NEAR_INTENTS_API_KEY ? { apiKey: env.NEAR_INTENTS_API_KEY } : {}) : null,
+    thorchain: env.THORCHAIN_DIRECT === "true" ? (env.THORNODE_URL ? { thornodeUrl: env.THORNODE_URL } : {}) : null,
   };
 }
 
@@ -111,7 +93,6 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     usdcTokenId: env.HEDERA_USDC_TOKEN_ID || TESTNET_USDC,
     facilitatorUrl: env.X402_FACILITATOR_URL || "https://x402.org/facilitator",
     ...(env.SWAP_PRICE_USDC ? { swapPriceUsd: env.SWAP_PRICE_USDC } : {}),
-    uniswapFee: uniswapFee(env),
     ...directVenues(env),
     rpcUrls: rpcUrls(env),
     port: Number(env.PORT || 8787),

@@ -68,8 +68,6 @@ export interface UniswapOptions {
   now?: () => Date;
   /** Reads a transaction receipt, returning null until it is mined. */
   getReceipt?: GetReceipt;
-  /** Receives the fee a request asks for. Without it no fee is charged. */
-  feeRecipient?: string;
 }
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
@@ -178,7 +176,9 @@ export function createUniswapVenue(options: UniswapOptions): Venue {
         ...(request.indicative ? {} : { recipient: request.to.address }),
         slippageTolerance: request.slippageBps / 100,
         protocols: ["V2", "V3", "V4"],
-        ...(options.feeRecipient && request.feeBps ? { integratorFees: [{ bips: request.feeBps, recipient: options.feeRecipient }] } : {}),
+        ...(request.fee && request.fee.bps > 0 && request.fee.recipients.evm
+          ? { integratorFees: [{ bips: request.fee.bps, recipient: request.fee.recipients.evm }] }
+          : {}),
       });
       if (response.status === 404) return [];
       if (!response.ok) {

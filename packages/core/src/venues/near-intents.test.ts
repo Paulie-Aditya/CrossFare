@@ -53,7 +53,7 @@ function fakeFetch(handlers: Record<string, (init?: RequestInit, url?: URL) => R
 const bodyOf = (fetch: ReturnType<typeof fakeFetch>, call: number) => JSON.parse(fetch.mock.calls[call]![1]?.body as string);
 
 function venue(fetch: FetchLike, options: { apiKey?: string } = {}) {
-  return createNearIntentsVenue({ feeRecipient: "crossfare.near", feeBps: 50, fetch, now: () => NOW, ...options });
+  return createNearIntentsVenue({ fetch, now: () => NOW, ...options });
 }
 
 beforeEach(() => registerAssets([LTC, SOL_USDC, DOGE]));
@@ -105,10 +105,39 @@ describe("findNearToken", () => {
   });
 });
 
+/** The fixture was recorded with 50 bps to crossfare.near, of which 1Click passed on 25. */
+const withFee: QuoteRequest = { ...ltcToSol, fee: { bps: 50, recipients: { near: "crossfare.near" } } };
+
+describe("the caller's fee on NEAR Intents", () => {
+  const quoted = async (request: QuoteRequest) => {
+    const fetch = fakeFetch({ "GET /v0/tokens": () => json(tokens), "POST /v0/quote": () => json(dryResponse) });
+    const [route] = await venue(fetch).quote(request);
+    return { body: bodyOf(fetch, 1), route };
+  };
+
+  it("goes to the caller's NEAR account", async () => {
+    expect((await quoted(withFee)).body.appFees).toEqual([{ recipient: "crossfare.near", fee: 50 }]);
+  });
+
+  it("goes to the caller's EVM wallet when it named no NEAR account, which is an Intents account too", async () => {
+    const { body } = await quoted({ ...ltcToSol, fee: { bps: 50, recipients: { evm: AGENT } } });
+    expect(body.appFees).toEqual([{ recipient: AGENT, fee: 50 }]);
+  });
+
+  it("is left out without a fee or a recipient", async () => {
+    expect((await quoted(ltcToSol)).body).not.toHaveProperty("appFees");
+    expect((await quoted({ ...ltcToSol, fee: { bps: 50, recipients: { thorchain: "cd" } } })).body).not.toHaveProperty("appFees");
+  });
+
+  it("shows what 1Click passes on to the caller, which is half", async () => {
+    expect((await quoted(withFee)).route?.fees).toEqual({ integrator: "25 bps", withdraw: "0.000115662 SOL" });
+  });
+});
+
 describe("near intents quote", () => {
   it("asks for a dry quote with the app fee, the addresses and slippage in bps", async () => {
     const fetch = fakeFetch({ "GET /v0/tokens": () => json(tokens), "POST /v0/quote": () => json(dryResponse) });
-    await venue(fetch).quote(ltcToSol);
+    await venue(fetch).quote(withFee);
 
     expect(fetch.mock.calls[1]![0]).toBe("https://1click.chaindefuser.com/v0/quote");
     expect(bodyOf(fetch, 1)).toEqual({
@@ -131,7 +160,7 @@ describe("near intents quote", () => {
 
   it("normalizes the answer into a route anyone can pay with a plain transfer", async () => {
     const fetch = fakeFetch({ "GET /v0/tokens": () => json(tokens), "POST /v0/quote": () => json(dryResponse) });
-    const [route] = await venue(fetch).quote(ltcToSol);
+    const [route] = await venue(fetch).quote(withFee);
     expect(route).toEqual({
       venue: "near-intents",
       from: "ltc:ltc",
@@ -139,7 +168,7 @@ describe("near intents quote", () => {
       amountIn: "100000000",
       amountOut: "575094870",
       minAmountOut: "569343921",
-      fees: { app: "50 bps", withdraw: "0.000115662 SOL" },
+      fees: { integrator: "25 bps", withdraw: "0.000115662 SOL" },
       etaSeconds: 124,
       validUntil: "2026-11-08T23:53:33.000Z",
       depositable: true,
@@ -197,7 +226,7 @@ describe("near intents quote", () => {
 });
 
 describe("near intents prepare", () => {
-  async function prepared(request = ltcToSol) {
+  async function prepared(request = withFee) {
     const fetch = fakeFetch({
       "GET /v0/tokens": () => json(tokens),
       "POST /v0/quote": (init) => json(JSON.parse(init?.body as string).dry ? dryResponse : quoteLtcSol),

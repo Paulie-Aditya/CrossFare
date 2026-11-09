@@ -138,7 +138,6 @@ const app = createApp({
     createUniswapVenue({
       apiKey: config.uniswapApiKey,
       getReceipt,
-      ...(config.uniswapFee ? { feeRecipient: config.uniswapFee.recipient } : {}),
     }),
     // Reached directly, these keep the whole affiliate fee. SwapKit stays the fallback for both.
     ...(config.nearIntents ? [createNearIntentsVenue(config.nearIntents)] : []),
@@ -156,7 +155,6 @@ const app = createApp({
   publisher: createArkivPublisher(arkiv),
   payTo: config.payToAccount,
   ...(config.swapPriceUsd ? { swapPriceUsd: config.swapPriceUsd } : {}),
-  ...(config.uniswapFee ? { defaultFeeBps: config.uniswapFee.defaultBps } : {}),
   arkivWriter: arkiv.writer,
   depositBalance: createDepositWatcher(Object.fromEntries([...readers].map(([chainId, reader]) => [chainId, balancesOn(reader)]))),
   screen: createSwapKitScreen({ apiKey: config.swapkitApiKey }),

@@ -94,17 +94,31 @@ describe("swaps", () => {
   });
 });
 
-describe("a database from before VIP fees", () => {
-  it("gains the fee column and keeps its keys", () => {
-    const path = join(mkdtempSync(join(tmpdir(), "crossfare-")), "old.db");
-    const old = new DatabaseSync(path);
-    old.exec(`CREATE TABLE vip_keys (id TEXT PRIMARY KEY, label TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, scopes TEXT NOT NULL, rate_per_minute INTEGER, monthly_quota INTEGER, created_at TEXT NOT NULL, revoked_at TEXT)`);
-    old.prepare(`INSERT INTO vip_keys (id, label, key_hash, scopes, created_at) VALUES ('vk_1', 'partner', 'hash', '["quote"]', '2026-11-08T00:00:00.000Z')`).run();
-    old.close();
-    const store = createStore(path);
-    expect(store.getVipKeyByHash("hash")).toMatchObject({ id: "vk_1", feeBps: null });
-    store.setVipKeyFee("vk_1", 100);
-    expect(createStore(path).getVipKeyByHash("hash")?.feeBps).toBe(100);
+describe("SwapKit fees owed to callers", () => {
+  const entry = {
+    swapId: "s_1",
+    quoteId: "q_1",
+    payer: "vip:coindrop",
+    provider: "near",
+    bps: 100,
+    amount: "0.01",
+    asset: "LTC.LTC",
+    recipients: { evm: "0xebdfd05075d84435de2d9a05336e7b2814e10cb5" },
+    at: "2026-11-09T12:00:00.000Z",
+  };
+
+  it("records a swap's fee once, however often it is reported", () => {
+    const store = createStore(":memory:");
+    store.recordSwapKitFee(entry);
+    store.recordSwapKitFee({ ...entry, amount: "99" });
+    expect(store.listSwapKitFees("2026-11-01T00:00:00.000Z", "2026-12-01T00:00:00.000Z")).toEqual([entry]);
+  });
+
+  it("lists the fees in a period", () => {
+    const store = createStore(":memory:");
+    store.recordSwapKitFee(entry);
+    store.recordSwapKitFee({ ...entry, swapId: "s_2", at: "2026-12-01T00:00:00.000Z" });
+    expect(store.listSwapKitFees("2026-11-01T00:00:00.000Z", "2026-12-01T00:00:00.000Z").map((fee) => fee.swapId)).toEqual(["s_1"]);
   });
 });
 
@@ -137,18 +151,8 @@ describe("VIP keys", () => {
 
   it("finds a key by its hash and never stores the key itself", () => {
     store.saveVipKey({ ...key, scopes: [...key.scopes] });
-    expect(store.getVipKeyByHash("a".repeat(64))).toEqual({ ...key, scopes: ["quote", "swap"], feeBps: null, revokedAt: null });
+    expect(store.getVipKeyByHash("a".repeat(64))).toEqual({ ...key, scopes: ["quote", "swap"], revokedAt: null });
     expect(store.getVipKeyByHash("b".repeat(64))).toBeNull();
-  });
-
-  it("keeps a key's fee, and changes or clears it later", () => {
-    store.saveVipKey({ ...key, scopes: [...key.scopes], feeBps: 100 });
-    expect(store.getVipKeyByHash("a".repeat(64))?.feeBps).toBe(100);
-    expect(store.setVipKeyFee("vk_1", 50)).toBe(true);
-    expect(store.getVipKeyByHash("a".repeat(64))?.feeBps).toBe(50);
-    expect(store.setVipKeyFee("vk_1", null)).toBe(true);
-    expect(store.getVipKeyByHash("a".repeat(64))?.feeBps).toBeNull();
-    expect(store.setVipKeyFee("vk_missing", 50)).toBe(false);
   });
 
   it("revokes a key by ID and lists it as revoked", () => {

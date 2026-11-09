@@ -13,9 +13,11 @@ import {
   toBaseUnits,
   VenueError,
   type PreparedSwap,
+  type CallerFee,
   type QuoteRequest,
   type Route,
   type ScreenAddresses,
+  type SwapKitAffiliateFee,
   type SwapStatus,
   type Venue,
   describeSwap,
@@ -38,7 +40,7 @@ import {
   type PricedEndpoint,
 } from "./payment.ts";
 import type { PublicQuote, QuotePublisher } from "./publisher.ts";
-import type { Store, VipKeyRecord, VipScope } from "./store.ts";
+import type { Store, VipScope } from "./store.ts";
 import { createVipGate, type VipGate } from "./vip.ts";
 
 export const QUOTE_ENDPOINT: PricedEndpoint = {
@@ -81,8 +83,6 @@ export interface AppDeps {
   onError?: (context: string, error: unknown) => void;
   /** Callers with a key who skip x402. Defaults to the keys in the store. */
   vip?: VipGate;
-  /** Crossfare's fee, in basis points, on swaps for callers whose key sets none. Venues without a fee wallet ignore it. */
-  defaultFeeBps?: number;
   /** Finds tokens by contract, reading unlisted ones from the chain. Without it only listed tokens resolve. */
   tokens?: TokenLookup;
 }
@@ -95,6 +95,34 @@ const ORDER_WINDOW_MS = 30 * 60_000;
 
 const UNISWAP_VENUE = "uniswap";
 const SWAPKIT_VENUE = "swapkit";
+
+/** Uniswap and 1Click both refuse a fee above 500 bps. */
+const MAX_FEE_BPS = 500;
+const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+/** A named NEAR account, an implicit one (64 hex) or an EVM address, which is an Intents account too. */
+const NEAR_ACCOUNT = /^(?=.{2,64}$)(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$|^0x[0-9a-fA-F]{40}$/;
+/** THORChain's rule for names; a short one keeps the memo under 80 bytes on UTXO chains. */
+const THORNAME = /^[a-zA-Z0-9+_.-]{1,30}$/;
+
+/** The caller's own fee. Each recipient is where one kind of venue pays it. */
+function parseFee(input: unknown): { fee?: CallerFee } | { error: string } {
+  if (input === undefined || input === null) return {};
+  const fee = input as { bps?: unknown; recipients?: Record<string, unknown> };
+  if (typeof fee.bps !== "number" || !Number.isInteger(fee.bps) || fee.bps < 1 || fee.bps > MAX_FEE_BPS) {
+    return { error: `fee.bps must be a whole number of basis points from 1 to ${MAX_FEE_BPS}` };
+  }
+  const given = fee.recipients ?? {};
+  const recipients: CallerFee["recipients"] = {};
+  const checks = { evm: EVM_ADDRESS, near: NEAR_ACCOUNT, thorchain: THORNAME } as const;
+  for (const [kind, pattern] of Object.entries(checks) as [keyof typeof checks, RegExp][]) {
+    const value = given[kind];
+    if (value === undefined) continue;
+    if (typeof value !== "string" || !pattern.test(value)) return { error: `fee.recipients.${kind} is not valid` };
+    recipients[kind] = value;
+  }
+  if (Object.keys(recipients).length === 0) return { error: "fee.recipients needs an evm, near or thorchain recipient" };
+  return { fee: { bps: fee.bps, recipients } };
+}
 
 function parseQuoteRequest(input: unknown): { request: QuoteRequest } | { status: 400 | 422; error: string } {
   const body = input as Partial<QuoteRequest> | null;
@@ -122,6 +150,8 @@ function parseQuoteRequest(input: unknown): { request: QuoteRequest } | { status
   } catch (error) {
     return { status: 422, error: (error as Error).message };
   }
+  const parsedFee = parseFee((body as { fee?: unknown } | null)?.fee);
+  if ("error" in parsedFee) return { status: 400, error: parsedFee.error };
   return {
     request: {
       from: { asset: from.asset, amount: from.amount, address: from.address },
@@ -130,6 +160,7 @@ function parseQuoteRequest(input: unknown): { request: QuoteRequest } | { status
       slippageBps,
       ...(body?.refundAddress ? { refundAddress: body.refundAddress } : {}),
       ...(body?.flexibleDeposit === true ? { flexibleDeposit: true } : {}),
+      ...("fee" in parsedFee && parsedFee.fee ? { fee: parsedFee.fee } : {}),
     },
   };
 }
@@ -235,14 +266,9 @@ export function createApp(deps: AppDeps): Hono {
     });
 
   /** Runs the handler with no payment. Failures answer as they do on the paid path. */
-  async function runUnpaid(
-    endpoint: PricedEndpoint,
-    handler: (payer: string, key?: VipKeyRecord) => Promise<HandlerResult>,
-    payer: string,
-    key?: VipKeyRecord,
-  ): Promise<HandlerResult> {
+  async function runUnpaid(endpoint: PricedEndpoint, handler: (payer: string) => Promise<HandlerResult>, payer: string): Promise<HandlerResult> {
     try {
-      return await handler(payer, key);
+      return await handler(payer);
     } catch (error) {
       onError(`${endpoint.key} handler failed`, error);
       return { status: 502, body: { error: "upstream_failed" } };
@@ -258,7 +284,7 @@ export function createApp(deps: AppDeps): Hono {
     endpoint: PricedEndpoint,
     scope: VipScope,
     rawBody: string,
-    handler: (payer: string, key?: VipKeyRecord) => Promise<HandlerResult>,
+    handler: (payer: string) => Promise<HandlerResult>,
   ): Promise<GuardedResult> {
     const decision = vip.check(
       {
@@ -277,7 +303,7 @@ export function createApp(deps: AppDeps): Hono {
       return { status: 402, body: { ...(required.body as object), error: decision.error }, headers: required.headers };
     }
     if (decision.kind === "allowed") {
-      const { status, body, usedBy } = await runUnpaid(endpoint, handler, decision.payer, decision.key);
+      const { status, body, usedBy } = await runUnpaid(endpoint, handler, decision.payer);
       if (status < 400) vip.record(decision.key, endpoint.key, usedBy ?? "");
       return { status, body };
     }
@@ -376,11 +402,10 @@ export function createApp(deps: AppDeps): Hono {
     const rawBody = await c.req.text();
     const parsed = parseQuoteRequest(await withCanonicalAssets(parseJson(rawBody)));
     if (!("request" in parsed)) return c.json({ error: parsed.error }, parsed.status);
+    const { request } = parsed;
+
     const result = await charged(c, QUOTE_ENDPOINT, "quote", rawBody,
-      async (payer, key) => {
-        // The fee is set per caller on the server, never by the request.
-        const feeBps = key?.feeBps ?? deps.defaultFeeBps ?? 0;
-        const request: QuoteRequest = feeBps > 0 ? { ...parsed.request, feeBps } : parsed.request;
+      async (payer) => {
         const answers = await Promise.allSettled(venues.map((venue) => venue.quote(request)));
         const routes = withUsdValues(preferDirectRoutes(venues, answers.flatMap((answer) => (answer.status === "fulfilled" ? answer.value : []))));
         for (const answer of answers) {
@@ -659,6 +684,28 @@ export function createApp(deps: AppDeps): Hono {
     }
   }
 
+  /**
+   * SwapKit pays a caller's fee to the operator's dashboard wallets, so it is recorded as owed
+   * to the caller for a later payout. Only a completed swap earns it.
+   */
+  function recordSwapKitFee(swapId: string, quote: NonNullable<ReturnType<Store["getQuote"]>>) {
+    const route = quote.route as Route;
+    const request = quote.request as QuoteRequest;
+    const affiliate = (route.venueData as { affiliateFee?: SwapKitAffiliateFee } | null)?.affiliateFee;
+    if (route.venue !== SWAPKIT_VENUE || !affiliate || !request.fee) return;
+    store.recordSwapKitFee({
+      swapId,
+      quoteId: quote.id,
+      payer: quote.payer,
+      provider: route.provider ?? "",
+      bps: affiliate.bps,
+      amount: affiliate.amount,
+      asset: affiliate.asset,
+      recipients: request.fee.recipients,
+      at: now().toISOString(),
+    });
+  }
+
   /** Advances a swap from the venue. A tracking failure leaves the last known status. */
   async function refreshSwap(swapId: string, quote: NonNullable<ReturnType<Store["getQuote"]>>) {
     const swap = store.getSwap(swapId)!;
@@ -702,6 +749,8 @@ export function createApp(deps: AppDeps): Hono {
           ...(tracked.partialRefund ? { partialRefund: true } : {}),
         },
       });
+
+      if (status === "completed") recordSwapKitFee(swap.id, quote);
 
       if (TERMINAL.includes(status) && quote.entityKey) {
         await publisher

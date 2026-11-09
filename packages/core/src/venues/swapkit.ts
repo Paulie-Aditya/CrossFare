@@ -62,7 +62,21 @@ export function mapTrackStatus(status: string): SwapStatus {
 interface ApiFee {
   type: string;
   amount?: string;
+  amountBps?: number | null;
   asset?: string;
+}
+
+/** The affiliate fee SwapKit pays the operator's dashboard wallet on a caller's behalf. */
+export interface SwapKitAffiliateFee {
+  amount: string;
+  asset: string;
+  bps: number;
+}
+
+function affiliateFee(route: ApiRoute, request: QuoteRequest): SwapKitAffiliateFee | undefined {
+  const fee = route.fees?.find((entry) => entry.type === "affiliate");
+  if (!fee?.amount || !fee.asset || !(Number(fee.amount) > 0)) return undefined;
+  return { amount: fee.amount, asset: fee.asset, bps: fee.amountBps ?? request.fee?.bps ?? 0 };
 }
 
 interface ApiRoute {
@@ -157,6 +171,8 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
             }),
         slippage: request.slippageBps / 100,
         quoteType: !exactIn ? "EXACT_OUTPUT" : request.flexibleDeposit ? "FLEX_INPUT" : "EXACT_INPUT",
+        // Always sent: without it SwapKit applies the dashboard's fee tiers to every caller.
+        affiliateFee: request.fee?.bps ?? 0,
       });
       if (response.status === 404) return [];
       if (!response.ok) {
@@ -168,6 +184,7 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
 
       return (routes ?? []).map((route) => {
         const usd = usdValues(route, sellAsset, request.from.amount, buyAsset);
+        const affiliate = affiliateFee(route, request);
         return {
         venue: VENUE,
         provider: route.providers.join("+").toLowerCase(),
@@ -183,7 +200,7 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
         validUntil,
         depositable: route.txHint === "simpleTransfer",
         ...(usd ? { usd } : {}),
-        venueData: { routeId: route.routeId },
+        venueData: { routeId: route.routeId, ...(affiliate ? { affiliateFee: affiliate } : {}) },
         };
       });
     },

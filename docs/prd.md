@@ -93,7 +93,7 @@ Live at crossfare.vercel.app, with the UI on Vercel and the API on EC2. Five rea
 * [x] Real swaps on the deployed site, which were also the first real runs of the stage tracker and on-chain deposit check
 * [x] Uniswap on all 21 of its chains, and any ERC-20 by contract with an unverified warning (FR-51, FR-52), built 9 November. Checked with real quotes on Arbitrum, Unichain and an unlisted Base token; no real swap on the new chains yet
 * [x] NEAR Intents and THORChain called directly, with SwapKit as the fallback for both (FR-53 to FR-55), built 9 November. Checked with real quotes for LTC to SOL, SOL to LTC and LTC to BTC; no real swap through either directly yet. THORChain's Solana trading was halted, so it had no LTC to SOL route
-* [x] Crossfare's fee on Uniswap swaps, set per VIP key (FR-56), built 9 November. Checked with real quotes on Base: the fee appears as a separate output and the swap calldata names the fee wallet. No real swap with a fee yet
+* [x] Callers' own fees on swaps (FR-34 to FR-36), built 9 November; Crossfare takes none. Uniswap and the direct venues pay the caller's wallet, and SwapKit fees are recorded for payout. Checked with real quotes: Uniswap's fee appears as a separate output and its swap calldata names the fee wallet, and SwapKit honours `affiliateFee`, including 0. No real swap with a fee yet
 * [ ] The MCP server (FR-2, P1), which isn't built, so packages/mcp doesn't exist
 
 ## How Crossfare is different
@@ -154,7 +154,7 @@ The hackathon goal is one end-to-end paid swap by an unattended agent, built so 
 
 **Non-goals**
 
-- No custody of user funds in Crossfare itself. Swapped funds move from the caller's wallet to the venue. The one planned exception is forwarding integrator fees earned through SwapKit (FR-35, after the hackathon).
+- No custody of user funds in Crossfare itself. Swapped funds move from the caller's wallet to the venue. The one exception is callers' fees earned through SwapKit, which SwapKit pays to the operator's wallets and Crossfare passes on (FR-35).
 - No self-serve accounts or dashboards; VIP keys are issued by hand after the hackathon.
 - No own liquidity, market making or price oracle.
 
@@ -493,26 +493,27 @@ VIP callers authenticate with a key instead of paying per call; x402 stays the d
 
 ### Integrator fees
 
-The caller sets the fee on each quote request; Crossfare shows it in every route and builds it into execution.
+Decided on 9 November: Crossfare takes no fee on swaps; it is routing infrastructure. The caller sets its own fee and wallets on each quote request, and earns it on every swap it routes. Crossfare shows it in every route and builds it into execution. Built 9 November; [docs/fees.md](fees.md) is the caller's guide.
 
 ```json
 "fee": {
-  "bps": 50,
-  "recipients": { "eth": "0xServiceTreasury…", "sol": "ServiceSolAddress…" },
-  "mode": "onchain"
+  "bps": 100,
+  "recipients": { "evm": "0xServiceTreasury…", "near": "service.near", "thorchain": "sv" }
 }
 ```
 
-| Venue or mode | How the fee is taken | Custody |
+| Venue | How the fee is taken | Custody |
 | --- | --- | --- |
-| Uniswap | Passed as Uniswap's `integratorFee` (bps + recipient), taken from the output inside the swap calldata; fractional bps allowed ([Uniswap changelog](https://developers.uniswap.org/docs/changelog/completed-notifications/setting-a-fee-through-the-api.md)) | Non-custodial, one atomic transaction |
-| SwapKit | Passed as SwapKit's `affiliateFee` (0 to 1,000 bps). SwapKit pays it on-chain to the affiliate addresses registered on Crossfare's key, so Crossfare forwards each caller's share ([SwapKit monetization](https://docs.swapkit.dev/get-started/monetization)) | Swap is non-custodial; fee forwarding passes through Crossfare |
-| `mode: "ledger"` | Crossfare only computes the fee; the caller takes it in its own books | Caller's ledger |
+| Uniswap | Uniswap's `integratorFees` (bips + the caller's `evm` wallet), taken from the output inside the swap calldata. Any key can pass it; up to 500 bips an entry (measured 9 November) | Non-custodial, one atomic transaction |
+| NEAR Intents, direct | 1Click's `appFees` to the caller's `near` account, or its `evm` address, which is also an Intents account. 1Click passes on half and keeps at least 20 bps | Non-custodial |
+| THORChain, direct | The memo's affiliate, the caller's `thorchain` THORName | Non-custodial |
+| SwapKit | SwapKit's `affiliateFee`, sent on every quote (0 without a fee, so the dashboard's tiers never apply). SwapKit pays only the wallets in the operator's dashboard, never one named in the request, so Crossfare records each caller's fee on a completed swap and pays it out later | The swap is non-custodial; the fee passes through the operator |
+| `mode: "ledger"` | Crossfare only computes the fee; the caller takes it in its own books. Not built | Caller's ledger |
 
-- **Cap.** The operator sets a maximum, 300 bps by default; quotes above it are rejected.
-- **Recipients per chain.** The fee lands on the output chain for Uniswap while SwapKit fees reach Crossfare's affiliate addresses and are forwarded in batches, so the caller supplies an address for each chain it uses.
-- **Disclosure.** Fee bps, amount and recipient go into the response and the Arkiv quote payload, so anyone can see what was charged.
-- **Crossfare's own fee.** Changed on 9 November: Crossfare does take a Uniswap fee of its own, set per VIP key by the operator (FR-56), because the operator's own services route through it. The API takes `integratorFees` as a list, each entry up to 500 bips (measured 9 November); whether a caller's fee (FR-34) and Crossfare's can both apply, as two entries, is untested.
+- **Cap.** 500 bps, the lower of Uniswap's and 1Click's limits; above it the request is refused.
+- **Recipients by venue.** A venue with no matching recipient charges no fee, and the route says so by showing none.
+- **Disclosure.** Each route shows the caller's share as `fees.integrator` (SwapKit's as `fees.affiliate`), and the route goes into the Arkiv quote payload. The caller's wallets are not published.
+- **Payouts.** SwapKit fees are recorded per payer, asset and recipients; `vip-cli.ts earnings` totals a month. Paying them out isn't automated.
 
 | ID | Area | Requirement | Priority |
 | --- | --- | --- | --- |
@@ -521,10 +522,10 @@ The caller sets the fee on each quote request; Crossfare shows it in every route
 | FR-31 | VIP | Signed requests: HMAC over timestamp and body, 60-second window. Built 8 November | P2 later |
 | FR-32 | VIP | Per-key usage metering with export for billing. Built 8 November | P2 later |
 | FR-33 | VIP | x402-paid pass that returns a short-lived VIP token | P2 later |
-| FR-34 | Fees | `fee` on quote requests, checked against the cap and per-chain recipients | P2 later |
-| FR-35 | Fees | Uniswap via `integratorFee`, SwapKit via affiliateFee with forwarding, plus ledger mode | P2 later |
-| FR-36 | Fees | Fee shown per route and recorded in the Arkiv payload | P2 later |
-| FR-56 | Fees | Crossfare's own fee on Uniswap swaps, set by the operator per VIP key, with a default for every other caller and a cap of 500 bps. Taken through Uniswap's `integratorFees`; routes quote what reaches the caller and show the fee. Built 9 November | P2 later |
+| FR-34 | Fees | `fee` on quote requests, checked against the cap, with a recipient per kind of venue. Built 9 November | P2 later |
+| FR-35 | Fees | Uniswap via `integratorFees`, NEAR Intents and THORChain directly, SwapKit via `affiliateFee` with a ledger of what each caller is owed. Payouts and ledger mode aren't built. Built 9 November | P2 later |
+| FR-36 | Fees | Fee shown per route and recorded in the Arkiv payload. Built 9 November | P2 later |
+| FR-56 | Fees | Replaced on 9 November, the day it was built: Crossfare's own fee on Uniswap swaps, set by the operator per VIP key. Crossfare takes no fee; callers set theirs (FR-34) | Dropped |
 
 ## Sponsor tracks
 
@@ -681,7 +682,7 @@ If the hour-24 gate slips, cut the MCP server and quote explorer first, then tri
 - [x] **Team size.** Solo.
 - [ ] **Production pricing.** Final per-call prices for quote and swap once on mainnet.
 
-* [ ] **Per-caller fee recipients.** Can SwapKit pay affiliate fees to a caller's address per request, or must Crossfare forward them?
+* [x] **Per-caller fee recipients.** SwapKit can't: `affiliateFee` is per request but its recipients are only the dashboard's (docs and live check, 9 November). Crossfare records what each caller is owed and pays out later.
 
 - [x] **Keep Uniswap?** Yes, for same-chain swaps only. SwapKit adds its own service fee, and Uniswap gave the best price in the 6 Nov same-chain check.
 - [x] **Is POST /v1/swap still paid?** No, free for now, and SWAP\_PRICE\_USDC can turn the charge on later (FR-43). The quote stays at 0.01 USDC, which meets Hedera's one-paid-endpoint rule.

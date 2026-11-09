@@ -63,16 +63,33 @@ const quoteParams = (fetch: ReturnType<typeof fakeFetch>) => {
 };
 
 function venue(fetch: FetchLike) {
-  return createThorchainVenue({ affiliate: "t", affiliateBps: 50, thornodeUrl: NODE, fetch, now: () => NOW });
+  return createThorchainVenue({ thornodeUrl: NODE, fetch, now: () => NOW });
 }
 
 beforeEach(() => registerAssets([LTC, SOL_USDC]));
 afterEach(() => registerAssets([]));
 
+describe("the caller's fee on THORChain", () => {
+  it("goes to the caller's THORName", async () => {
+    const fetch = fakeFetch(ltcToBtcQuote);
+    await venue(fetch).quote({ ...ltcToBtc, fee: { bps: 50, recipients: { thorchain: "t" } } });
+    expect(quoteParams(fetch)).toMatchObject({ affiliate: "t", affiliate_bps: "50" });
+  });
+
+  it("is left out without a fee or a THORName", async () => {
+    for (const request of [ltcToBtc, { ...ltcToBtc, fee: { bps: 50, recipients: { evm: AGENT } } }]) {
+      const fetch = fakeFetch(ltcToBtcQuote);
+      await venue(fetch).quote(request);
+      expect(quoteParams(fetch)).not.toHaveProperty("affiliate");
+      expect(quoteParams(fetch)).not.toHaveProperty("affiliate_bps");
+    }
+  });
+});
+
 describe("thorchain quote", () => {
   it("asks with THORChain's 8-decimal amount, the affiliate, streaming and the slippage limit", async () => {
     const fetch = fakeFetch(ltcToBtcQuote);
-    await venue(fetch).quote(ltcToBtc);
+    await venue(fetch).quote({ ...ltcToBtc, fee: { bps: 50, recipients: { thorchain: "t" } } });
     expect(quoteParams(fetch)).toEqual({
       from_asset: "LTC.LTC",
       to_asset: "BTC.BTC",
@@ -95,7 +112,7 @@ describe("thorchain quote", () => {
       amountIn: "100000000",
       amountOut: "65863",
       minAmountOut: "65203",
-      fees: { affiliate: "0.00000335 BTC", outbound: "0.0000088 BTC", liquidity: "0.00000134 BTC" },
+      fees: { integrator: "0.00000335 BTC", outbound: "0.0000088 BTC", liquidity: "0.00000134 BTC" },
       etaSeconds: 156,
       validUntil: "2026-11-08T23:55:00.000Z",
       depositable: false,

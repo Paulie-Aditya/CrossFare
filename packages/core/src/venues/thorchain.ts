@@ -90,9 +90,6 @@ function explorerHash(chain: string, hash: string): string {
 }
 
 export interface ThorchainOptions {
-  /** A THORName. A thor1 address works too, but makes the memo too long for Bitcoin-style chains. */
-  affiliate: string;
-  affiliateBps: number;
   thornodeUrl?: string;
   fetch?: FetchLike;
   now?: () => Date;
@@ -131,6 +128,8 @@ export function createThorchainVenue(options: ThorchainOptions): Venue {
       if (!fromPool || !toPool || !names.has(fromPool) || !names.has(toPool)) return [];
 
       const amountIn = toBaseUnits(request.from.amount, from.decimals);
+      // The caller's THORName. A thor1 address would make the memo too long for Bitcoin-style chains.
+      const affiliate = request.fee && request.fee.bps > 0 ? request.fee.recipients.thorchain : undefined;
       const params = new URLSearchParams({
         from_asset: fromPool,
         to_asset: toPool,
@@ -140,8 +139,7 @@ export function createThorchainVenue(options: ThorchainOptions): Venue {
         streaming_quantity: "0",
         // Slippage on price alone. Plain tolerance_bps also counts THORChain's fees, which can exceed it.
         liquidity_tolerance_bps: String(request.slippageBps),
-        affiliate: options.affiliate,
-        affiliate_bps: String(options.affiliateBps),
+        ...(affiliate && request.fee ? { affiliate, affiliate_bps: String(request.fee.bps) } : {}),
       });
       const response = await fetchImpl(`${node}/thorchain/quote/swap?${params}`);
       // A halted chain, an amount below dust or a memo too long for the source chain.
@@ -175,7 +173,9 @@ export function createThorchainVenue(options: ThorchainOptions): Venue {
           minAmountOut: minAmountOut.toString(),
           fees: fees
             ? Object.fromEntries(
-                (["affiliate", "outbound", "liquidity"] as const).flatMap((kind) => (fees[kind] ? [[kind, feeLine(fees[kind])]] : [])),
+                (["affiliate", "outbound", "liquidity"] as const).flatMap((kind) =>
+                  fees[kind] && fees[kind] !== "0" ? [[kind === "affiliate" ? "integrator" : kind, feeLine(fees[kind])]] : [],
+                ),
               )
             : {},
           etaSeconds: quote.total_swap_seconds ?? 0,

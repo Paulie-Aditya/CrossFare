@@ -75,48 +75,24 @@ describe("loadConfig", () => {
 });
 
 describe("direct venues", () => {
-  it("stay off until a fee recipient is set, so SwapKit keeps every provider", () => {
+  it("stay off unless turned on, so SwapKit keeps every provider", () => {
     expect(loadConfig(env)).toMatchObject({ nearIntents: null, thorchain: null });
   });
 
-  it("turn on NEAR Intents with its fee, and a partner key when there is one", () => {
-    expect(loadConfig({ ...env, NEAR_INTENTS_FEE_RECIPIENT: "crossfare.near", NEAR_INTENTS_FEE_BPS: "50" }).nearIntents).toEqual({
-      feeRecipient: "crossfare.near",
-      feeBps: 50,
+  it("turn on NEAR Intents, with a partner key when there is one", () => {
+    expect(loadConfig({ ...env, NEAR_INTENTS_DIRECT: "true" }).nearIntents).toEqual({});
+    expect(loadConfig({ ...env, NEAR_INTENTS_DIRECT: "true", NEAR_INTENTS_API_KEY: "k" }).nearIntents).toEqual({ apiKey: "k" });
+  });
+
+  it("turn on THORChain, on a chosen node", () => {
+    expect(loadConfig({ ...env, THORCHAIN_DIRECT: "true", THORNODE_URL: "https://node.example" }).thorchain).toEqual({
+      thornodeUrl: "https://node.example",
     });
-    expect(
-      loadConfig({ ...env, NEAR_INTENTS_FEE_RECIPIENT: "crossfare.near", NEAR_INTENTS_FEE_BPS: "50", NEAR_INTENTS_API_KEY: "k" }).nearIntents,
-    ).toMatchObject({ apiKey: "k" });
   });
 
-  it("turn on THORChain with its affiliate name and fee, on a chosen node", () => {
-    expect(
-      loadConfig({ ...env, THORCHAIN_AFFILIATE: "cf", THORCHAIN_AFFILIATE_BPS: "50", THORNODE_URL: "https://node.example" }).thorchain,
-    ).toEqual({ affiliate: "cf", affiliateBps: 50, thornodeUrl: "https://node.example" });
-  });
-
-  it("refuse a fee that isn't whole basis points in each venue's range", () => {
-    expect(() => loadConfig({ ...env, NEAR_INTENTS_FEE_RECIPIENT: "x.near" })).toThrow(/NEAR_INTENTS_FEE_BPS/);
-    expect(() => loadConfig({ ...env, NEAR_INTENTS_FEE_RECIPIENT: "x.near", NEAR_INTENTS_FEE_BPS: "501" })).toThrow(/NEAR_INTENTS_FEE_BPS/);
-    expect(() => loadConfig({ ...env, THORCHAIN_AFFILIATE: "cf", THORCHAIN_AFFILIATE_BPS: "0.5" })).toThrow(/THORCHAIN_AFFILIATE_BPS/);
-    expect(() => loadConfig({ ...env, THORCHAIN_AFFILIATE: "cf", THORCHAIN_AFFILIATE_BPS: "1001" })).toThrow(/THORCHAIN_AFFILIATE_BPS/);
-  });
-});
-
-describe("the Uniswap fee", () => {
-  const wallet = "0xebdfd05075d84435de2d9a05336e7b2814e10cb5";
-
-  it("is off until a fee wallet is set", () => {
-    expect(loadConfig(env).uniswapFee).toBeNull();
-  });
-
-  it("goes to the fee wallet, with no default fee unless one is set", () => {
-    expect(loadConfig({ ...env, UNISWAP_FEE_RECIPIENT: wallet }).uniswapFee).toEqual({ recipient: wallet, defaultBps: 0 });
-    expect(loadConfig({ ...env, UNISWAP_FEE_RECIPIENT: wallet, UNISWAP_FEE_BPS: "25" }).uniswapFee).toEqual({ recipient: wallet, defaultBps: 25 });
-  });
-
-  it("refuses a wallet that isn't an EVM address, and a default above Uniswap's 500 bips", () => {
-    expect(() => loadConfig({ ...env, UNISWAP_FEE_RECIPIENT: "crossfare.near" })).toThrow(/UNISWAP_FEE_RECIPIENT/);
-    expect(() => loadConfig({ ...env, UNISWAP_FEE_RECIPIENT: wallet, UNISWAP_FEE_BPS: "501" })).toThrow(/UNISWAP_FEE_BPS/);
+  it("refuse the old fee settings, because callers now set their own fee", () => {
+    for (const name of ["NEAR_INTENTS_FEE_RECIPIENT", "THORCHAIN_AFFILIATE", "UNISWAP_FEE_RECIPIENT"]) {
+      expect(() => loadConfig({ ...env, [name]: "x" })).toThrow(new RegExp(name));
+    }
   });
 });

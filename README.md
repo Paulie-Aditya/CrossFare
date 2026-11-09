@@ -125,9 +125,9 @@ Prices are placeholders, settled in testnet USDC. Set `SWAP_PRICE_USDC` to charg
 
 **VIP keys.** A service that makes many calls can skip x402 with a VIP key: it signs each request with an HMAC instead of paying, and its calls are rate-limited, counted for billing and published on Arkiv under the key's label. See [`docs/vip.md`](docs/vip.md).
 
-**Crossfare's fee on Uniswap.** With `UNISWAP_FEE_RECIPIENT` set, Uniswap swaps carry a fee to that wallet, taken from the output inside the swap itself, so Crossfare still never holds the caller's funds. The fee is set per caller: a VIP key's own fee (`vip-cli.ts create --fee-bps 100`, or `fee <key-id> 100` later), else `UNISWAP_FEE_BPS` for everyone else, up to Uniswap's cap of 500 bps. A caller can't set or remove it in the request. Routes quote what reaches the caller after the fee and show the fee as `fees.integrator`, which is also on the Arkiv record. SwapKit's affiliate fee is set in SwapKit's dashboard instead, one fee for every caller.
+**Your fee on swaps.** Crossfare takes no fee on swaps; it is routing infrastructure. A caller adds its own fee and wallets to a quote (`fee: { bps, recipients: { evm, near, thorchain } }`, up to 500 bps). Uniswap, and NEAR Intents and THORChain when called directly, pay it straight to the caller's wallet inside the swap. SwapKit pays only the wallets in the operator's dashboard, so Crossfare records what each caller earned there and pays it out separately. Routes quote what the customer receives after the fee and show the caller's share as `fees.integrator`. See [`docs/fees.md`](docs/fees.md).
 
-**Direct venues.** NEAR Intents (through its 1Click API) and THORChain (through a THORNode) can be called directly rather than through SwapKit, so the affiliate fee isn't shared with SwapKit. Each turns on when its fee recipient is set: `NEAR_INTENTS_FEE_RECIPIENT` with `NEAR_INTENTS_FEE_BPS`, and `THORCHAIN_AFFILIATE` with `THORCHAIN_AFFILIATE_BPS`. When a direct venue has a route, SwapKit's route through the same provider is dropped. When it has none or fails, SwapKit's route stays as the fallback. Measured on 9 November:
+**Direct venues.** NEAR Intents (through its 1Click API) and THORChain (through a THORNode) can be called directly rather than through SwapKit, so they pay a caller's fee to the caller's own wallet. Turn them on with `NEAR_INTENTS_DIRECT=true` and `THORCHAIN_DIRECT=true`. When a direct venue has a route, SwapKit's route through the same provider is dropped. When it has none or fails, SwapKit's route stays as the fallback. Measured on 9 November:
 
 - 1Click keeps half of the app fee, and at least 20 bps, with or without a partner key: asking for 50 bps paid 25 to the recipient, although its fee page says unauthenticated callers keep all of theirs. A better split needs a partner agreement.
 - THORChain pays the whole affiliate fee. From Litecoin, Bitcoin and other UTXO chains the memo must fit in 80 bytes, so the affiliate must be a short registered THORName, not a `thor1` address. A THORChain deposit must carry its memo, so these routes return the memo with the vault address and the UI doesn't offer them as plain transfers. From Ethereum, BNB Chain, Avalanche and Base they are router calls a wallet signs.
@@ -171,7 +171,7 @@ pnpm --filter @crossfare/agent start --from eth:usdc --to base:eth --amount 5
 You need:
 
 - Uniswap and SwapKit API keys
-- optionally, a NEAR Intents account and a THORName to receive fees from those venues directly
+- for SwapKit to pay callers' fees, a fee wallet per provider in SwapKit's dashboard. Callers' own wallets receive the fees from other venues
 - two Hedera testnet accounts, both associated with testnet USDC (`0.0.429274`) by `pnpm setup:usdc`, and the agent's funded with USDC
 - an Arkiv access key and a wallet funded from the faucet
 - for live swaps, a dedicated EVM wallet with small balances, including ETH for gas on the source chain
