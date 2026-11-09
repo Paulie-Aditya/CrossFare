@@ -38,7 +38,7 @@ import {
   type PricedEndpoint,
 } from "./payment.ts";
 import type { PublicQuote, QuotePublisher } from "./publisher.ts";
-import type { Store, VipScope } from "./store.ts";
+import type { Store, VipKeyRecord, VipScope } from "./store.ts";
 import { createVipGate, type VipGate } from "./vip.ts";
 
 export const QUOTE_ENDPOINT: PricedEndpoint = {
@@ -81,6 +81,8 @@ export interface AppDeps {
   onError?: (context: string, error: unknown) => void;
   /** Callers with a key who skip x402. Defaults to the keys in the store. */
   vip?: VipGate;
+  /** Crossfare's fee, in basis points, on swaps for callers whose key sets none. Venues without a fee wallet ignore it. */
+  defaultFeeBps?: number;
   /** Finds tokens by contract, reading unlisted ones from the chain. Without it only listed tokens resolve. */
   tokens?: TokenLookup;
 }
@@ -233,9 +235,14 @@ export function createApp(deps: AppDeps): Hono {
     });
 
   /** Runs the handler with no payment. Failures answer as they do on the paid path. */
-  async function runUnpaid(endpoint: PricedEndpoint, handler: (payer: string) => Promise<HandlerResult>, payer: string): Promise<HandlerResult> {
+  async function runUnpaid(
+    endpoint: PricedEndpoint,
+    handler: (payer: string, key?: VipKeyRecord) => Promise<HandlerResult>,
+    payer: string,
+    key?: VipKeyRecord,
+  ): Promise<HandlerResult> {
     try {
-      return await handler(payer);
+      return await handler(payer, key);
     } catch (error) {
       onError(`${endpoint.key} handler failed`, error);
       return { status: 502, body: { error: "upstream_failed" } };
@@ -251,7 +258,7 @@ export function createApp(deps: AppDeps): Hono {
     endpoint: PricedEndpoint,
     scope: VipScope,
     rawBody: string,
-    handler: (payer: string) => Promise<HandlerResult>,
+    handler: (payer: string, key?: VipKeyRecord) => Promise<HandlerResult>,
   ): Promise<GuardedResult> {
     const decision = vip.check(
       {
@@ -270,7 +277,7 @@ export function createApp(deps: AppDeps): Hono {
       return { status: 402, body: { ...(required.body as object), error: decision.error }, headers: required.headers };
     }
     if (decision.kind === "allowed") {
-      const { status, body, usedBy } = await runUnpaid(endpoint, handler, decision.payer);
+      const { status, body, usedBy } = await runUnpaid(endpoint, handler, decision.payer, decision.key);
       if (status < 400) vip.record(decision.key, endpoint.key, usedBy ?? "");
       return { status, body };
     }
@@ -369,10 +376,11 @@ export function createApp(deps: AppDeps): Hono {
     const rawBody = await c.req.text();
     const parsed = parseQuoteRequest(await withCanonicalAssets(parseJson(rawBody)));
     if (!("request" in parsed)) return c.json({ error: parsed.error }, parsed.status);
-    const { request } = parsed;
-
     const result = await charged(c, QUOTE_ENDPOINT, "quote", rawBody,
-      async (payer) => {
+      async (payer, key) => {
+        // The fee is set per caller on the server, never by the request.
+        const feeBps = key?.feeBps ?? deps.defaultFeeBps ?? 0;
+        const request: QuoteRequest = feeBps > 0 ? { ...parsed.request, feeBps } : parsed.request;
         const answers = await Promise.allSettled(venues.map((venue) => venue.quote(request)));
         const routes = withUsdValues(preferDirectRoutes(venues, answers.flatMap((answer) => (answer.status === "fulfilled" ? answer.value : []))));
         for (const answer of answers) {

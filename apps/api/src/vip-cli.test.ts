@@ -27,9 +27,15 @@ describe("vip create", () => {
     });
   });
 
-  it("defaults to both scopes, 60 a minute and no quota", () => {
+  it("defaults to both scopes, 60 a minute, no quota and the server's default fee", () => {
     run("create", "partner");
-    expect(store.listVipKeys()[0]).toMatchObject({ scopes: ["quote", "swap"], ratePerMinute: 60, monthlyQuota: null });
+    expect(store.listVipKeys()[0]).toMatchObject({ scopes: ["quote", "swap"], ratePerMinute: 60, monthlyQuota: null, feeBps: null });
+  });
+
+  it("sets the key's own fee", () => {
+    expect(run("create", "partner", "--fee-bps", "100")).toBe(0);
+    expect(store.listVipKeys()[0]?.feeBps).toBe(100);
+    expect(lines.join(" ")).toContain("fee 100 bps");
   });
 
   it.each([
@@ -37,6 +43,8 @@ describe("vip create", () => {
     [["create", "Has Spaces"], "label"],
     [["create", "partner", "--scopes", "trade"], "scopes"],
     [["create", "partner", "--rate", "-1"], "rate"],
+    [["create", "partner", "--fee-bps", "501"], "fee"],
+    [["create", "partner", "--fee-bps", "1.5"], "fee"],
   ])("refuses %j", (args, word) => {
     expect(run(...args)).toBe(1);
     expect(lines.join(" ")).toContain(word);
@@ -55,6 +63,23 @@ describe("vip list, revoke and usage", () => {
     expect(lines.join("\n")).toContain("vk_test");
     expect(lines.join("\n")).toContain("partner");
     expect(lines.join("\n")).not.toMatch(/cf_live_|[0-9a-f]{64}/);
+  });
+
+  it("changes a key's fee, or returns it to the default", () => {
+    expect(run("fee", "vk_test", "0")).toBe(0);
+    expect(store.listVipKeys()[0]?.feeBps).toBe(0);
+    expect(run("fee", "vk_test", "default")).toBe(0);
+    expect(store.listVipKeys()[0]?.feeBps).toBeNull();
+    expect(run("fee", "vk_test", "600")).toBe(1);
+    expect(run("fee", "vk_nope", "100")).toBe(1);
+  });
+
+  it("lists each key's fee", () => {
+    run("fee", "vk_test", "100");
+    lines = [];
+    run("list");
+    expect(lines[0]).toContain("fee_bps");
+    expect(lines[1]).toContain(",100,");
   });
 
   it("revokes a key", () => {

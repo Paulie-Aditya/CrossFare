@@ -13,6 +13,11 @@ export interface Config {
   facilitatorUrl: string;
   /** Unset means POST /v1/swap is free. */
   swapPriceUsd?: string;
+  /**
+   * Charges Crossfare's fee on Uniswap swaps, paid to this wallet. A VIP key's own fee wins over the default.
+   * Null charges nothing.
+   */
+  uniswapFee: { recipient: string; defaultBps: number } | null;
   /** Swaps through NEAR Intents' 1Click API directly. Null leaves NEAR routes to SwapKit. */
   nearIntents: { feeRecipient: string; feeBps: number; apiKey?: string } | null;
   /** Swaps through a THORNode directly. Null leaves THORChain routes to SwapKit. */
@@ -52,11 +57,19 @@ function rpcUrls(env: Record<string, string | undefined>): Record<number, string
   return urls;
 }
 
-/** 1Click caps its fees and the app's together at 500 bps; THORChain caps an affiliate at 1000. */
+/** 1Click caps its fees and the app's together at 500 bps; THORChain caps an affiliate at 1000; Uniswap caps one at 500. */
 function feeBps(env: Record<string, string | undefined>, name: string, max: number): number {
   const value = env[name] ?? "";
   if (!/^\d+$/.test(value) || Number(value) > max) throw new Error(`${name} must be a whole number of basis points from 0 to ${max}`);
   return Number(value);
+}
+
+function uniswapFee(env: Record<string, string | undefined>): Config["uniswapFee"] {
+  const recipient = env.UNISWAP_FEE_RECIPIENT;
+  if (!recipient) return null;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(recipient)) throw new Error("UNISWAP_FEE_RECIPIENT must be an EVM address");
+  // Uniswap refuses an integrator fee above 500 bips.
+  return { recipient, defaultBps: env.UNISWAP_FEE_BPS ? feeBps(env, "UNISWAP_FEE_BPS", 500) : 0 };
 }
 
 function directVenues(env: Record<string, string | undefined>): Pick<Config, "nearIntents" | "thorchain"> {
@@ -98,6 +111,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     usdcTokenId: env.HEDERA_USDC_TOKEN_ID || TESTNET_USDC,
     facilitatorUrl: env.X402_FACILITATOR_URL || "https://x402.org/facilitator",
     ...(env.SWAP_PRICE_USDC ? { swapPriceUsd: env.SWAP_PRICE_USDC } : {}),
+    uniswapFee: uniswapFee(env),
     ...directVenues(env),
     rpcUrls: rpcUrls(env),
     port: Number(env.PORT || 8787),

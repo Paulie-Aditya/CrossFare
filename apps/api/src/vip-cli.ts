@@ -5,14 +5,18 @@ import { generateVipKey, hashVipKey, isValidVipLabel } from "./vip.ts";
 
 /**
  * Issues and manages VIP keys in the API's database. Run it next to the server:
- *   node --env-file=<env> src/vip-cli.ts create <label> [--scopes quote,swap] [--rate 60] [--quota N]
+ *   node --env-file=<env> src/vip-cli.ts create <label> [--scopes quote,swap] [--rate 60] [--quota N] [--fee-bps N]
  *   node --env-file=<env> src/vip-cli.ts list
+ *   node --env-file=<env> src/vip-cli.ts fee <key-id> <bps|default>
  *   node --env-file=<env> src/vip-cli.ts revoke <key-id>
  *   node --env-file=<env> src/vip-cli.ts usage [--month YYYY-MM]
  */
 
 const SCOPES: readonly VipScope[] = ["quote", "swap"];
 const DEFAULT_RATE_PER_MINUTE = 60;
+/** Uniswap refuses an integrator fee above 500 bips. */
+const MAX_FEE_BPS = 500;
+const FEE_HELP = `a fee is a whole number of basis points from 0 to ${MAX_FEE_BPS}`;
 
 interface CliDeps {
   store: Store;
@@ -30,6 +34,12 @@ function option(args: string[], name: string): string | undefined {
 function count(value: string | undefined): number | null | "invalid" {
   if (value === undefined) return null;
   return /^[1-9][0-9]*$/.test(value) ? Number(value) : "invalid";
+}
+
+/** Basis points within Uniswap's cap, or null when the option is absent. */
+function fee(value: string | undefined): number | null | "invalid" {
+  if (value === undefined) return null;
+  return /^(0|[1-9][0-9]*)$/.test(value) && Number(value) <= MAX_FEE_BPS ? Number(value) : "invalid";
 }
 
 const monthStart = (year: number, month: number) => new Date(Date.UTC(year, month, 1)).toISOString();
@@ -58,6 +68,8 @@ export function runVipCommand(args: string[], deps: CliDeps): number {
       if (rate === "invalid") return fail("--rate must be a whole number of requests a minute, at least 1");
       const quota = count(option(args, "quota"));
       if (quota === "invalid") return fail("--quota must be a whole number of calls a month, at least 1");
+      const feeBps = fee(option(args, "fee-bps"));
+      if (feeBps === "invalid") return fail(`--fee-bps: ${FEE_HELP}`);
 
       const key = generateVipKey();
       const id = newId();
@@ -68,21 +80,33 @@ export function runVipCommand(args: string[], deps: CliDeps): number {
         scopes: [...new Set(scopes)],
         ratePerMinute: rate ?? DEFAULT_RATE_PER_MINUTE,
         monthlyQuota: quota,
+        feeBps,
         createdAt: now().toISOString(),
       });
-      print(`Created ${id} for "${first}" (scopes ${scopes.join(",")}, ${rate ?? DEFAULT_RATE_PER_MINUTE}/min, quota ${quota ?? "none"}).`);
+      const feeText = feeBps === null ? "the default fee" : `fee ${feeBps} bps`;
+      print(`Created ${id} for "${first}" (scopes ${scopes.join(",")}, ${rate ?? DEFAULT_RATE_PER_MINUTE}/min, quota ${quota ?? "none"}, ${feeText}).`);
       print(`Key, shown only now: ${key}`);
       return 0;
     }
 
     case "list": {
       const since = monthStart(now().getUTCFullYear(), now().getUTCMonth());
-      print("id,label,scopes,rate_per_minute,monthly_quota,calls_this_month,created_at,revoked_at");
+      print("id,label,scopes,rate_per_minute,monthly_quota,fee_bps,calls_this_month,created_at,revoked_at");
       for (const key of store.listVipKeys()) {
         print(
-          [key.id, key.label, key.scopes.join(" "), key.ratePerMinute ?? "", key.monthlyQuota ?? "", store.countVipUsage(key.id, since), key.createdAt, key.revokedAt ?? ""].join(","),
+          [key.id, key.label, key.scopes.join(" "), key.ratePerMinute ?? "", key.monthlyQuota ?? "", key.feeBps ?? "default", store.countVipUsage(key.id, since), key.createdAt, key.revokedAt ?? ""].join(","),
         );
       }
+      return 0;
+    }
+
+    case "fee": {
+      const value = args[2];
+      if (!first || value === undefined) return fail("Give the key ID, from `list`, and a fee in basis points or `default`.");
+      const feeBps = value === "default" ? null : fee(value);
+      if (feeBps === "invalid") return fail(`Not a fee: ${FEE_HELP}, or \`default\`.`);
+      if (!store.setVipKeyFee(first, feeBps)) return fail(`No key with ID ${first}.`);
+      print(`${first} now pays ${feeBps === null ? "the default fee" : `${feeBps} bps`} on new quotes.`);
       return 0;
     }
 
@@ -111,7 +135,7 @@ export function runVipCommand(args: string[], deps: CliDeps): number {
     }
 
     default:
-      return fail("Commands: create <label> [--scopes quote,swap] [--rate N] [--quota N] | list | revoke <id> | usage [--month YYYY-MM]");
+      return fail("Commands: create <label> [--scopes quote,swap] [--rate N] [--quota N] [--fee-bps N] | list | fee <id> <bps|default> | revoke <id> | usage [--month YYYY-MM]");
   }
 }
 

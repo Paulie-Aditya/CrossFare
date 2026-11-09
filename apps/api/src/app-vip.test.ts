@@ -72,9 +72,9 @@ function app(overrides: Partial<AppDeps> = {}) {
   });
 }
 
-function issueKey(scopes: VipScope[] = ["quote", "swap"], ratePerMinute: number | null = null) {
+function issueKey(scopes: VipScope[] = ["quote", "swap"], ratePerMinute: number | null = null, feeBps: number | null = null) {
   const key = generateVipKey();
-  store.saveVipKey({ id: `vk_${scopes.join("_")}`, label: "partner", keyHash: hashVipKey(key), scopes, ratePerMinute, monthlyQuota: null, createdAt: NOW.toISOString() });
+  store.saveVipKey({ id: `vk_${scopes.join("_")}`, label: "partner", keyHash: hashVipKey(key), scopes, ratePerMinute, monthlyQuota: null, feeBps, createdAt: NOW.toISOString() });
   return key;
 }
 
@@ -152,6 +152,42 @@ describe("VIP quotes", () => {
     expect(response.status).toBe(200);
     expect(((await response.json()) as any).payment).toBeDefined();
     expect(gateway.settle).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the fee on a caller's swaps", () => {
+  const askedFee = () => (venue.quote.mock.calls[0]![0] as { feeBps?: number }).feeBps;
+
+  it("is the key's own fee for a VIP caller", async () => {
+    const key = issueKey(["quote"], null, 100);
+    await post(app({ defaultFeeBps: 25 }), "/v1/quote", quoteBody, (body) => vipHeaders(key, "/v1/quote", body));
+    expect(askedFee()).toBe(100);
+  });
+
+  it("can be zero for a VIP caller, whatever the default", async () => {
+    const key = issueKey(["quote"], null, 0);
+    await post(app({ defaultFeeBps: 25 }), "/v1/quote", quoteBody, (body) => vipHeaders(key, "/v1/quote", body));
+    expect(askedFee() ?? 0).toBe(0);
+  });
+
+  it("is the default for a VIP key without its own", async () => {
+    const key = issueKey(["quote"]);
+    await post(app({ defaultFeeBps: 25 }), "/v1/quote", quoteBody, (body) => vipHeaders(key, "/v1/quote", body));
+    expect(askedFee()).toBe(25);
+  });
+
+  it("is the default for an x402 caller, and none without one", async () => {
+    await post(app({ defaultFeeBps: 25 }), "/v1/quote", quoteBody, () => ({ "payment-signature": "signed-payment" }));
+    expect(askedFee()).toBe(25);
+    venue.quote.mockClear();
+    // Each payment pays once, so the second call needs its own.
+    await post(app(), "/v1/quote", quoteBody, () => ({ "payment-signature": "another-payment" }));
+    expect(askedFee() ?? 0).toBe(0);
+  });
+
+  it("can't be set by the caller", async () => {
+    await post(app({ defaultFeeBps: 25 }), "/v1/quote", { ...quoteBody, feeBps: 0 }, () => ({ "payment-signature": "signed-payment" }));
+    expect(askedFee()).toBe(25);
   });
 });
 

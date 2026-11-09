@@ -54,6 +54,8 @@ export interface VipKeyRecord {
   ratePerMinute: number | null;
   /** Metered calls per calendar month (UTC). Null means no limit. */
   monthlyQuota: number | null;
+  /** Crossfare's fee on this caller's swaps, in basis points. Absent or null means the server's default. */
+  feeBps?: number | null;
   createdAt: string;
   revokedAt?: string | null;
 }
@@ -94,6 +96,8 @@ export interface Store {
   listVipKeys(): VipKeyRecord[];
   /** Returns false when no key has this ID. */
   revokeVipKey(id: string, at: string): boolean;
+  /** Null returns the key to the server's default fee. False when no key has this ID. */
+  setVipKeyFee(id: string, feeBps: number | null): boolean;
   recordVipUsage(usage: VipUsage): void;
   countVipUsage(keyId: string, since: string): number;
   /** Calls per key and endpoint from since (inclusive) to until (exclusive). */
@@ -141,6 +145,7 @@ const SCHEMA = `
     scopes TEXT NOT NULL,
     rate_per_minute INTEGER,
     monthly_quota INTEGER,
+    fee_bps INTEGER,
     created_at TEXT NOT NULL,
     revoked_at TEXT
   );
@@ -184,6 +189,7 @@ function toVipKey(row: Record<string, string | number | null> | undefined): VipK
     scopes: JSON.parse(row.scopes as string) as VipScope[],
     ratePerMinute: (row.rate_per_minute as number | null) ?? null,
     monthlyQuota: (row.monthly_quota as number | null) ?? null,
+    feeBps: (row.fee_bps as number | null) ?? null,
     createdAt: row.created_at as string,
     revokedAt: (row.revoked_at as string | null) ?? null,
   };
@@ -192,11 +198,13 @@ function toVipKey(row: Record<string, string | number | null> | undefined): VipK
 export function createStore(path: string): Store {
   const db = new DatabaseSync(path);
   db.exec(SCHEMA);
-  // A database from before this column keeps its rows.
-  const columns = db.prepare("PRAGMA table_info(swaps)").all() as { name: string }[];
-  if (!columns.some((column) => column.name === "deposit_details")) {
+  // A database from before these columns keeps its rows.
+  const hasColumn = (table: string, name: string) =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((column) => column.name === name);
+  if (!hasColumn("swaps", "deposit_details")) {
     db.exec("ALTER TABLE swaps ADD COLUMN deposit_details TEXT NOT NULL DEFAULT '{}'");
   }
+  if (!hasColumn("vip_keys", "fee_bps")) db.exec("ALTER TABLE vip_keys ADD COLUMN fee_bps INTEGER");
 
   return {
     claimPayment(fingerprint, endpoint) {
@@ -317,9 +325,9 @@ export function createStore(path: string): Store {
 
     saveVipKey(key) {
       db.prepare(
-        `INSERT INTO vip_keys (id, label, key_hash, scopes, rate_per_minute, monthly_quota, created_at, revoked_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(key.id, key.label, key.keyHash, JSON.stringify(key.scopes), key.ratePerMinute, key.monthlyQuota, key.createdAt, key.revokedAt ?? null);
+        `INSERT INTO vip_keys (id, label, key_hash, scopes, rate_per_minute, monthly_quota, fee_bps, created_at, revoked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(key.id, key.label, key.keyHash, JSON.stringify(key.scopes), key.ratePerMinute, key.monthlyQuota, key.feeBps ?? null, key.createdAt, key.revokedAt ?? null);
     },
 
     getVipKeyByHash(keyHash) {
@@ -335,6 +343,10 @@ export function createStore(path: string): Store {
       if (!known) return false;
       db.prepare("UPDATE vip_keys SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?").run(at, id);
       return true;
+    },
+
+    setVipKeyFee(id, feeBps) {
+      return db.prepare("UPDATE vip_keys SET fee_bps = ? WHERE id = ?").run(feeBps, id).changes > 0;
     },
 
     recordVipUsage(usage) {

@@ -102,3 +102,21 @@ describe("direct venues", () => {
     expect(() => loadConfig({ ...env, THORCHAIN_AFFILIATE: "cf", THORCHAIN_AFFILIATE_BPS: "1001" })).toThrow(/THORCHAIN_AFFILIATE_BPS/);
   });
 });
+
+describe("the Uniswap fee", () => {
+  const wallet = "0xebdfd05075d84435de2d9a05336e7b2814e10cb5";
+
+  it("is off until a fee wallet is set", () => {
+    expect(loadConfig(env).uniswapFee).toBeNull();
+  });
+
+  it("goes to the fee wallet, with no default fee unless one is set", () => {
+    expect(loadConfig({ ...env, UNISWAP_FEE_RECIPIENT: wallet }).uniswapFee).toEqual({ recipient: wallet, defaultBps: 0 });
+    expect(loadConfig({ ...env, UNISWAP_FEE_RECIPIENT: wallet, UNISWAP_FEE_BPS: "25" }).uniswapFee).toEqual({ recipient: wallet, defaultBps: 25 });
+  });
+
+  it("refuses a wallet that isn't an EVM address, and a default above Uniswap's 500 bips", () => {
+    expect(() => loadConfig({ ...env, UNISWAP_FEE_RECIPIENT: "crossfare.near" })).toThrow(/UNISWAP_FEE_RECIPIENT/);
+    expect(() => loadConfig({ ...env, UNISWAP_FEE_RECIPIENT: wallet, UNISWAP_FEE_BPS: "501" })).toThrow(/UNISWAP_FEE_BPS/);
+  });
+});

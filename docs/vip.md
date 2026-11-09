@@ -97,8 +97,9 @@ Keys live in the API's SQLite database, next to quotes and swaps. The command ru
 
 | Command | Does |
 | --- | --- |
-| `create <label> [--scopes quote,swap] [--rate N] [--quota N]` | Issues a key and prints it once. Defaults: both scopes, 60 requests a minute, no monthly quota |
-| `list` | Every key with its limits and this month's calls. Never prints a key or hash |
+| `create <label> [--scopes quote,swap] [--rate N] [--quota N] [--fee-bps N]` | Issues a key and prints it once. Defaults: both scopes, 60 requests a minute, no monthly quota, the server's default fee |
+| `list` | Every key with its limits, fee and this month's calls. Never prints a key or hash |
+| `fee <key-id> <bps\|default>` | Changes the key's fee on Uniswap swaps, from 0 to 500 bps, or returns it to `UNISWAP_FEE_BPS`. Applies to new quotes |
 | `revoke <key-id>` | Stops a key at once |
 | `usage [--month YYYY-MM]` | Metered calls per key and endpoint for a month, as CSV for billing. Defaults to this month |
 

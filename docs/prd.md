@@ -93,6 +93,7 @@ Live at crossfare.vercel.app, with the UI on Vercel and the API on EC2. Five rea
 * [x] Real swaps on the deployed site, which were also the first real runs of the stage tracker and on-chain deposit check
 * [x] Uniswap on all 21 of its chains, and any ERC-20 by contract with an unverified warning (FR-51, FR-52), built 9 November. Checked with real quotes on Arbitrum, Unichain and an unlisted Base token; no real swap on the new chains yet
 * [x] NEAR Intents and THORChain called directly, with SwapKit as the fallback for both (FR-53 to FR-55), built 9 November. Checked with real quotes for LTC to SOL, SOL to LTC and LTC to BTC; no real swap through either directly yet. THORChain's Solana trading was halted, so it had no LTC to SOL route
+* [x] Crossfare's fee on Uniswap swaps, set per VIP key (FR-56), built 9 November. Checked with real quotes on Base: the fee appears as a separate output and the swap calldata names the fee wallet. No real swap with a fee yet
 * [ ] The MCP server (FR-2, P1), which isn't built, so packages/mcp doesn't exist
 
 ## How Crossfare is different
@@ -511,7 +512,7 @@ The caller sets the fee on each quote request; Crossfare shows it in every route
 - **Cap.** The operator sets a maximum, 300 bps by default; quotes above it are rejected.
 - **Recipients per chain.** The fee lands on the output chain for Uniswap while SwapKit fees reach Crossfare's affiliate addresses and are forwarded in batches, so the caller supplies an address for each chain it uses.
 - **Disclosure.** Fee bps, amount and recipient go into the response and the Arkiv quote payload, so anyone can see what was charged.
-- **One fee per Uniswap swap.** Uniswap accepts a single integrator fee per request, so Crossfare takes no Uniswap fee of its own when a caller sets one. Crossfare earns from x402 and VIP instead.
+- **Crossfare's own fee.** Changed on 9 November: Crossfare does take a Uniswap fee of its own, set per VIP key by the operator (FR-56), because the operator's own services route through it. The API takes `integratorFees` as a list, each entry up to 500 bips (measured 9 November); whether a caller's fee (FR-34) and Crossfare's can both apply, as two entries, is untested.
 
 | ID | Area | Requirement | Priority |
 | --- | --- | --- | --- |
@@ -523,6 +524,7 @@ The caller sets the fee on each quote request; Crossfare shows it in every route
 | FR-34 | Fees | `fee` on quote requests, checked against the cap and per-chain recipients | P2 later |
 | FR-35 | Fees | Uniswap via `integratorFee`, SwapKit via affiliateFee with forwarding, plus ledger mode | P2 later |
 | FR-36 | Fees | Fee shown per route and recorded in the Arkiv payload | P2 later |
+| FR-56 | Fees | Crossfare's own fee on Uniswap swaps, set by the operator per VIP key, with a default for every other caller and a cap of 500 bps. Taken through Uniswap's `integratorFees`; routes quote what reaches the caller and show the fee. Built 9 November | P2 later |
 
 ## Sponsor tracks
 
