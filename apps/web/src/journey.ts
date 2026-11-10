@@ -12,6 +12,32 @@ export interface PublicRoute {
   depositable?: boolean;
   usd?: { in: number; out: number };
   arkiv: { entityKey: string | null; pending: boolean };
+  /** Set on a route in two legs: the caller holds the first leg's output, the hub, until signing the second. */
+  legs?: RouteLeg[];
+}
+
+export interface RouteLeg {
+  venue: string;
+  provider?: string;
+  from: string;
+  to: string;
+  amountIn: string;
+  amountOut: string;
+  minAmountOut: string;
+  etaSeconds: number;
+}
+
+/** A leg of a swap in progress, as status reports it. */
+export interface LegStatus {
+  venue: string;
+  status: string;
+  amountReceived?: string;
+}
+
+/** An unsigned Solana transaction, to sign and send before it lapses with its blockhash. */
+export interface SolanaTransaction {
+  transaction: string;
+  lastValidBlockHeight: number;
 }
 
 export interface SwapTransaction {
@@ -55,6 +81,12 @@ export interface JourneyState {
   partialRefund: boolean;
   error: string | null;
   notice: string | null;
+  /** On a two-leg route: the leg in progress, from 1. */
+  leg: number | null;
+  legCount: number | null;
+  /** What the first leg delivered, which the second leg spends. */
+  hubReceived: string | null;
+  solana: SolanaTransaction | null;
 }
 
 export const initialJourney: JourneyState = {
@@ -77,6 +109,10 @@ export const initialJourney: JourneyState = {
   partialRefund: false,
   error: null,
   notice: null,
+  leg: null,
+  legCount: null,
+  hubReceived: null,
+  solana: null,
 };
 
 export type JourneyEvent =
@@ -90,7 +126,11 @@ export type JourneyEvent =
       swapPayment: string | null;
       transactions: SwapTransaction[];
       deposit?: Deposit;
+      solana?: SolanaTransaction;
+      leg?: number;
+      legCount?: number;
     }
+  | { type: "next_leg_requested" }
   | { type: "wallet_send_requested" }
   | { type: "tx_sent"; hash: string }
   | { type: "signed" }
@@ -103,6 +143,9 @@ export type JourneyEvent =
       depositShort?: string | null;
       refundReason?: string | null;
       partialRefund?: boolean;
+      leg?: number;
+      legCount?: number;
+      legs?: LegStatus[];
     }
   | { type: "failed"; message: string }
   | { type: "arkiv_keys"; keys: Record<string, string> }
@@ -147,8 +190,13 @@ export function reduceJourney(state: JourneyState, event: JourneyEvent): Journey
         swapPayment: event.swapPayment,
         transactions: event.transactions,
         deposit: event.deposit ?? null,
+        solana: event.solana ?? null,
         swapStatus: event.deposit ? "awaiting_deposit" : null,
+        ...(event.leg ? { leg: event.leg } : {}),
+        ...(event.legCount ? { legCount: event.legCount } : {}),
       };
+    case "next_leg_requested":
+      return { ...state, step: "preparing", error: null, notice: null };
     case "wallet_send_requested":
       return { ...state, step: "signing", error: null };
     case "tx_sent":
@@ -173,6 +221,9 @@ export function reduceJourney(state: JourneyState, event: JourneyEvent): Journey
         refundReason: event.refundReason ?? state.refundReason,
         partialRefund: event.partialRefund ?? state.partialRefund,
         txHashes: event.txHashes?.length ? event.txHashes : state.txHashes,
+        leg: event.leg ?? state.leg,
+        legCount: event.legCount ?? state.legCount,
+        hubReceived: event.status === "awaiting_next_leg" ? (event.legs?.at(-1)?.amountReceived ?? state.hubReceived) : state.hubReceived,
       };
     case "failed":
       return {
@@ -330,7 +381,13 @@ export function explorerLinks(hashes: string[], fromAsset: string, toAsset: stri
   });
 }
 
-const DIRECT_VENUES: Record<string, string> = { uniswap: "Uniswap", "near-intents": "NEAR Intents", thorchain: "THORChain" };
+const DIRECT_VENUES: Record<string, string> = {
+  uniswap: "Uniswap",
+  "near-intents": "NEAR Intents",
+  thorchain: "THORChain",
+  pancakeswap: "PancakeSwap",
+  jupiter: "Jupiter",
+};
 
 /** Who fills a route: a venue Crossfare calls directly, or SwapKit and the provider behind it. */
 export function venueLabel(venue: string | undefined, provider?: string): { full: string; short: string } {
@@ -340,16 +397,57 @@ export function venueLabel(venue: string | undefined, provider?: string): { full
   return via ? { full: `SwapKit via ${via}`, short: via } : { full: "SwapKit", short: "SwapKit" };
 }
 
-export type RouteAction = "deposit" | "wallet" | "connect" | "unsupported";
+/** Who fills each leg, in order. */
+export function routeLabel(route: PublicRoute): string {
+  if (!route.legs) return venueLabel(route.venue, route.provider).full;
+  return route.legs.map((leg) => venueLabel(leg.venue, leg.provider).short).join(", then ");
+}
+
+export type RouteAction = "deposit" | "wallet" | "connect" | "unsupported" | "solana" | "connect-solana" | "other-wallet";
+
+/** The wallets this page holds, and the form's addresses. */
+export interface RouteWallets {
+  evm?: string;
+  solana?: string;
+  sender?: string;
+  recipient?: string;
+}
+
+const sameWallet = (a: string | undefined, b: string | undefined) => !!a && !!b && (a.startsWith("0x") ? a.toLowerCase() === b.toLowerCase() : a === b);
 
 /** The page's wallet signs on every chain Uniswap trades on. */
 export const canSignOn = (asset: string) => walletChain(asset.split(":")[0] ?? "") !== undefined;
 
 /** A plain transfer works from any wallet software. Anything else needs a signature on a chain this page can use. */
-export function routeAction(route: PublicRoute, connected: boolean, sourceChain = "base"): RouteAction {
+export function routeAction(route: PublicRoute, connected: boolean, sourceChain = "base", wallets: RouteWallets = {}): RouteAction {
+  // Jupiter's transaction is signed by a Solana wallet.
+  if (route.venue === "jupiter" || route.legs?.[0]?.venue === "jupiter") return wallets.solana ? "solana" : "connect-solana";
   if (route.depositable) return "deposit";
   if (!walletChain(sourceChain)) return "unsupported";
-  return connected ? "wallet" : "connect";
+  if (!connected) return "connect";
+  const hub = route.legs?.[0]?.to;
+  if (hub) {
+    // The hub stays with the sender on the source chain, else it lands at the receiving address.
+    const holder = hub.split(":")[0] === sourceChain ? wallets.sender : wallets.recipient;
+    const signer = hub.startsWith("sol:") ? wallets.solana : wallets.evm;
+    if (wallets.evm !== undefined && !sameWallet(signer, holder?.trim())) return "other-wallet";
+  }
+  return "wallet";
+}
+
+/** The chain ID when an asset is a chain's gas coin, which a second leg's gas is paid in too. */
+export function nativeHubChain(asset: string): number | null {
+  const [code, symbol] = asset.split(":");
+  const chain = walletChain(code ?? "");
+  return chain && chain.nativeCurrency.symbol.toLowerCase() === symbol ? chain.id : null;
+}
+
+/** How much of what arrived a second leg can spend, gas first coming out of what the wallet already held. */
+export function spendableAfterGas(received: bigint, balance: bigint, gasCost: bigint): bigint | null {
+  const spare = balance - received;
+  if (spare >= gasCost) return received;
+  const amount = received - (gasCost - (spare > 0n ? spare : 0n));
+  return amount > 0n ? amount : null;
 }
 
 export function defaultSlippage(from: string, to: string): string {
@@ -379,6 +477,8 @@ export function buildQuoteRequest(form: SwapForm, connected: string | undefined)
     slippageBps: Math.round(Number(form.slippage) * 100),
     refundAddress,
     ...(walletMatches(connected, refundAddress) ? {} : { flexibleDeposit: true }),
+    // A route in two legs needs a wallet here to sign the second.
+    ...(connected ? { multiLeg: true } : {}),
   };
 }
 
@@ -462,6 +562,7 @@ export function receivedAboveMinimum(received: string | null, minimum: string): 
 const STATUS_LABELS: Record<string, string> = {
   awaiting_deposit: "Awaiting deposit",
   exchanging: "Swapping",
+  awaiting_next_leg: "First leg done",
   executing: "In progress",
 };
 

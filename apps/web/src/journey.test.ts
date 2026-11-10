@@ -22,6 +22,9 @@ import {
   journeyStations,
   reduceJourney,
   routeAction,
+  routeLabel,
+  nativeHubChain,
+  spendableAfterGas,
   shorten,
   venueLabel,
   walletMatches,
@@ -615,5 +618,79 @@ describe("venueLabel", () => {
   it("names SwapKit by the provider it routes through", () => {
     expect(venueLabel("swapkit", "thorchain_streaming")).toEqual({ full: "SwapKit via THORCHAIN STREAMING", short: "THORCHAIN STREAMING" });
     expect(venueLabel("swapkit")).toEqual({ full: "SwapKit", short: "SwapKit" });
+  });
+});
+
+describe("routes in more than one leg, and on Solana", () => {
+  const EVM_WALLET = "0xAbC0000000000000000000000000000000000001";
+  const SOL_WALLET = "GZRiD2TR1oiSXXFDsGhLR5fZWbfHqY9KyfHkiChUuVBR";
+  const leg = (venue: string, from: string, to: string, provider?: string) => ({
+    venue, ...(provider ? { provider } : {}), from, to, amountIn: "1", amountOut: "0.2", minAmountOut: "0.19", etaSeconds: 60,
+  });
+  const twoLeg = (hub: string) =>
+    ({ venue: "swapkit+uniswap", depositable: false, legs: [leg("swapkit", "bsc:bnb", hub, "chainflip"), leg("uniswap", hub, "eth:pepe")] }) as unknown as PublicRoute;
+
+  it("names direct venues and each leg of a route", () => {
+    expect(venueLabel("pancakeswap").full).toBe("PancakeSwap");
+    expect(venueLabel("jupiter").full).toBe("Jupiter");
+    expect(routeLabel(twoLeg("eth:eth"))).toBe("CHAINFLIP, then Uniswap");
+    expect(routeLabel({ venue: "uniswap" } as PublicRoute)).toBe("Uniswap");
+  });
+
+  it("asks for two-leg routes only with a wallet to sign the second leg", () => {
+    const form = { from: "bsc:bnb", to: "eth:pepe", amount: "1", recipient: EVM_WALLET, refundAddress: EVM_WALLET, slippage: "3" };
+    expect(buildQuoteRequest(form, undefined)).not.toHaveProperty("multiLeg");
+    expect(buildQuoteRequest(form, EVM_WALLET)).toMatchObject({ multiLeg: true });
+  });
+
+  it("lets the connected wallet run a two-leg route when it holds the hub between legs", () => {
+    const wallets = { evm: EVM_WALLET, sender: EVM_WALLET, recipient: EVM_WALLET };
+    expect(routeAction(twoLeg("eth:eth"), true, "bsc", wallets)).toBe("wallet");
+  });
+
+  it("says when the second leg needs a wallet that isn't connected", () => {
+    const wallets = { evm: EVM_WALLET, sender: EVM_WALLET, recipient: "0x1111111111111111111111111111111111111111" };
+    expect(routeAction(twoLeg("eth:eth"), true, "bsc", wallets)).toBe("other-wallet");
+    // A hub on the source chain stays with the sender, whoever receives.
+    expect(routeAction(twoLeg("bsc:usdt"), true, "bsc", wallets)).toBe("wallet");
+  });
+
+  it("signs a Jupiter route with a Solana wallet", () => {
+    const jupiter = { venue: "jupiter", depositable: false } as PublicRoute;
+    expect(routeAction(jupiter, false, "sol")).toBe("connect-solana");
+    expect(routeAction(jupiter, false, "sol", { solana: SOL_WALLET })).toBe("solana");
+  });
+
+  it("knows a chain's gas coin, so a second leg can keep some back", () => {
+    expect(nativeHubChain("eth:eth")).toBe(1);
+    expect(nativeHubChain("bsc:bnb")).toBe(56);
+    expect(nativeHubChain("eth:usdc")).toBeNull();
+    expect(spendableAfterGas(100n, 150n, 30n)).toBe(100n);
+    expect(spendableAfterGas(100n, 110n, 30n)).toBe(80n);
+    expect(spendableAfterGas(100n, 100n, 100n)).toBeNull();
+  });
+
+  it("waits for the person after the first leg, then signs the second", () => {
+    let state = reduceJourney(initialJourney, { type: "swap_prepared", swapId: "s_1", swapPayment: null, transactions: [] });
+    state = reduceJourney(state, { type: "signed" });
+    state = reduceJourney(state, {
+      type: "status",
+      status: "awaiting_next_leg",
+      leg: 1,
+      legCount: 2,
+      legs: [{ venue: "swapkit", status: "completed", amountReceived: "0.199" }],
+    });
+    expect(state).toMatchObject({ step: "tracking", swapStatus: "awaiting_next_leg", leg: 1, legCount: 2, hubReceived: "0.199" });
+    expect(statusLabel("awaiting_next_leg")).toBe("First leg done");
+    state = reduceJourney(state, { type: "next_leg_requested" });
+    expect(state.step).toBe("preparing");
+    state = reduceJourney(state, { type: "swap_prepared", swapId: "s_1", swapPayment: null, transactions: [], leg: 2 });
+    expect(state).toMatchObject({ step: "signing", swapStatus: null, leg: 2 });
+  });
+
+  it("keeps a Solana transaction to sign", () => {
+    const solana = { transaction: "AQAB", lastValidBlockHeight: 1 };
+    const state = reduceJourney(initialJourney, { type: "swap_prepared", swapId: "s_1", swapPayment: null, transactions: [], solana });
+    expect(state).toMatchObject({ step: "signing", solana });
   });
 });
