@@ -160,6 +160,7 @@ pnpm test
 pnpm setup:topic       # creates the audit topic; copy the ID into .env
 pnpm setup:usdc        # associates testnet USDC with the fee and agent accounts
 pnpm check:venues      # read-only: real quotes, spends nothing
+CROSSFARE_LIVE_TESTS=true pnpm test   # also runs the tests that read live chains; spends nothing
 pnpm --filter @crossfare/api start
 ```
 
@@ -202,7 +203,7 @@ The live site runs the API on [EC2](docs/deploy-ec2.md) and the UI on [Vercel](d
 
 ## Built with
 
-Open-source libraries, used as published: [Hono](https://hono.dev), [`@x402/core`, `@x402/hedera`, `@x402/fetch`](https://github.com/x402-foundation/x402), [`@hiero-ledger/sdk`](https://github.com/hiero-ledger/hiero-sdk-js), [`@arkiv-network/sdk`](https://hub.arkiv.network), [viem](https://viem.sh), [React](https://react.dev), [Vite](https://vite.dev), [wagmi](https://wagmi.sh), [qrcode.react](https://github.com/zpao/qrcode.react) and [Vitest](https://vitest.dev). No starter kit was used. All project code was written during the hackathon.
+Open-source libraries, used as published: [Hono](https://hono.dev), [`@x402/core`, `@x402/hedera`, `@x402/fetch`](https://github.com/x402-foundation/x402), [`@hiero-ledger/sdk`](https://github.com/hiero-ledger/hiero-sdk-js), [`@arkiv-network/sdk`](https://hub.arkiv.network), [viem](https://viem.sh), [React](https://react.dev), [Vite](https://vite.dev), [wagmi](https://wagmi.sh), [qrcode.react](https://github.com/zpao/qrcode.react), [PancakeSwap's Smart Router and Universal Router SDKs](https://developer.pancakeswap.finance/sdks/smart-router) and [Vitest](https://vitest.dev). No starter kit was used. Code up to the submission was written during the hackathon; later work is in the commit history.
 
 ## AI use
 
