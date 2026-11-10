@@ -18,6 +18,9 @@ export interface AgentConfig {
   usdcTokenId: string;
   /** By chain ID. Ethereum and Base have defaults; any other chain can be set as RPC_URL_<chainId>. */
   rpcUrls: Record<number, string>;
+  /** Base58 secret key of the agent's Solana wallet, as wallets export it. Unset: no Solana signing. */
+  solanaSecretKey?: string;
+  solanaRpcUrl: string;
 }
 
 const REQUIRED = [
@@ -44,6 +47,8 @@ export function loadAgentConfig(env: Record<string, string | undefined>): AgentC
     perCallCap: usdc(env.AGENT_PER_CALL_CAP_USDC || "0.10"),
     totalBudget: usdc(env.AGENT_BUDGET_USDC || "0.20"),
     usdcTokenId: env.HEDERA_USDC_TOKEN_ID || TESTNET_USDC,
+    ...(env.AGENT_SOLANA_KEY ? { solanaSecretKey: env.AGENT_SOLANA_KEY } : {}),
+    solanaRpcUrl: env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
     rpcUrls: {
       1: env.ETHEREUM_RPC_URL || "https://ethereum-rpc.publicnode.com",
       8453: env.BASE_RPC_URL || "https://mainnet.base.org",
@@ -64,8 +69,9 @@ const SAME_CHAIN_SLIPPAGE_BPS = 50;
 /** Reads the instruction. Swapped funds go only to an address someone actually gave. */
 export async function resolveGoal(
   args: string[],
-  sender: string,
+  evmSender: string,
   ask: (question: string) => Promise<string>,
+  solanaSender?: string,
 ): Promise<Goal> {
   const { values } = parseArgs({
     args,
@@ -93,7 +99,10 @@ export async function resolveGoal(
   }
   if (recipient === undefined) throw new Error(`No valid receiving address for ${to}`);
 
-  const crossChain = parseAssetId(from).chain !== chain;
+  const sourceChain = parseAssetId(from).chain;
+  if (sourceChain === "sol" && !solanaSender) throw new Error("Set AGENT_SOLANA_KEY to swap from Solana");
+  const sender = sourceChain === "sol" ? solanaSender! : evmSender;
+  const crossChain = sourceChain !== chain;
   const defaultSlippage = crossChain ? CROSS_CHAIN_SLIPPAGE_BPS : SAME_CHAIN_SLIPPAGE_BPS;
   return {
     from: { asset: from, amount, address: sender },

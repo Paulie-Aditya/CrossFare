@@ -5,7 +5,10 @@ import { x402Client } from "@x402/core/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
 import { createClientHederaSigner } from "@x402/hedera";
 import { ExactHederaScheme } from "@x402/hedera/exact/client";
-import { createPublicClient, createWalletClient, hexToString, http, type Hex } from "viem";
+import { createPublicClient, createWalletClient, formatUnits, hexToString, http, parseUnits, type Hex } from "viem";
+import { createKeyPairSignerFromBytes, createSolanaRpc, getBase58Encoder } from "@solana/kit";
+import { nativeHub, spendableAfterGas } from "./gas.ts";
+import { signSolanaTransaction } from "./solana.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { QuoteSchema } from "@crossfare/core/arkiv-schema";
 import { chainFor } from "./chains.ts";
@@ -28,7 +31,31 @@ async function askOwner(question: string): Promise<string> {
   }
 }
 
-const goal = await resolveGoal(process.argv.slice(2), account.address, askOwner);
+const solanaSigner = config.solanaSecretKey ? await createKeyPairSignerFromBytes(getBase58Encoder().encode(config.solanaSecretKey)) : null;
+const solanaRpc = createSolanaRpc(config.solanaRpcUrl);
+
+const goal = await resolveGoal(process.argv.slice(2), account.address, askOwner, solanaSigner?.address);
+
+/** Signs Crossfare's unsigned Solana transaction with the agent's own key and sends it. */
+async function sendSolanaTransaction(input: { transaction: string }): Promise<string> {
+  if (!solanaSigner) throw new Error("AGENT_SOLANA_KEY isn't set");
+  const { wire, signature } = await signSolanaTransaction(input.transaction, solanaSigner.keyPair);
+  await solanaRpc.sendTransaction(wire as never, { encoding: "base64", preflightCommitment: "confirmed" }).send();
+  return signature;
+}
+
+/** Generous gas for a second leg: a swap, approvals included, at twice the current price. */
+const SECOND_LEG_GAS = 600_000n;
+
+async function spendableHub(hub: string, received: string): Promise<string | null> {
+  const native = nativeHub(hub);
+  if (!native) return received;
+  const { chain, rpcUrl } = chainFor(native.chainId, config.rpcUrls);
+  const reader = createPublicClient({ chain, transport: http(rpcUrl) });
+  const [balance, gasPrice] = await Promise.all([reader.getBalance({ address: account.address }), reader.getGasPrice()]);
+  const amount = spendableAfterGas(parseUnits(received, native.decimals), balance, gasPrice * SECOND_LEG_GAS * 2n);
+  return amount === null ? null : formatUnits(amount, native.decimals);
+}
 
 const policy = createSpendPolicy({
   perCallCap: config.perCallCap,
@@ -94,15 +121,18 @@ const result = await runAgent(
     },
     listQuotes: async () => (await getJson(`/v1/quotes?payer=${config.hederaAccount}`)).quotes,
     requestSwap: (quoteId, swapToken) => postPaid("/v1/swap", { quoteId, swapToken }),
-    async requestNextLeg(swapId, swapToken) {
+    async requestNextLeg(swapId, swapToken, amount) {
       const response = await fetch(`${config.apiUrl}/v1/swaps/${swapId}/next`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ swapToken }),
+        body: JSON.stringify({ swapToken, ...(amount ? { amount } : {}) }),
       });
       return { status: response.status, body: await response.json() };
     },
     sendTransaction,
+    spendableHub,
+    ...(solanaSigner ? { sendSolanaTransaction } : {}),
+    ownAddresses: [account.address, ...(solanaSigner ? [solanaSigner.address] : [])],
     async submitHash(swapId, hash) {
       await fetch(`${config.apiUrl}/v1/swaps/${swapId}/tx`, {
         method: "POST",

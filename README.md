@@ -170,7 +170,7 @@ Run the agent in a second terminal. It asks for the receiving address unless you
 pnpm --filter @crossfare/agent start --from eth:usdc --to base:eth --amount 5
 ```
 
-The agent accepts two-leg routes. When the first leg lands, it asks for the second and signs it from the wallet holding the hub token. If the second leg is refused or can't be sent, for example for lack of gas, it stops and says what it holds. The second leg needs the agent's own address as the receiving address when the hub is on the destination chain.
+The agent accepts two-leg routes. When the first leg lands, it asks for the second and signs it from the wallet holding the hub token. When that hub is a chain's gas coin, it keeps back enough for the second leg's gas. It skips a two-leg route whose second leg another wallet would have to sign, and if the second leg is refused or can't be sent, it stops and says what it holds. With `AGENT_SOLANA_KEY` set, it also signs Jupiter's Solana transactions and can send from Solana (`--from sol:sol`).
 
 You need:
 

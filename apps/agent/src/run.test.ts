@@ -229,6 +229,15 @@ describe("reference agent", () => {
     expect(deps.sendTransaction).not.toHaveBeenCalled();
   });
 
+  it("signs and sends a Solana transaction when it has a Solana wallet", async () => {
+    const solana = { transaction: "AQAB", lastValidBlockHeight: 1 };
+    deps.requestSwap.mockResolvedValue({ status: 200, body: { swapId: "s_1", venue: "jupiter", transactions: [], solana } });
+    (deps as any).sendSolanaTransaction = vi.fn(async () => "5sig");
+    expect(await run()).toMatchObject({ outcome: "completed" });
+    expect((deps as any).sendSolanaTransaction).toHaveBeenCalledWith(solana);
+    expect(deps.submitHash).toHaveBeenCalledWith("s_1", "5sig");
+  });
+
   it("polls until the swap finishes", async () => {
     deps.getStatus
       .mockResolvedValueOnce({ status: "confirming" })
@@ -254,6 +263,10 @@ describe("two-leg routes", () => {
   const leg2 = { kind: "swap", chainId: 1, to: "0xuniswap", data: "0xleg2", value: "0x2c2ad68fd9000000" };
 
   beforeEach(() => {
+    const legs = [{ venue: "swapkit", from: "bsc:bnb", to: "eth:eth", amountOut: "0.2" }, { venue: "uniswap", from: "eth:eth", to: "eth:pepe", amountOut: "200000" }];
+    const routes = [route("q_two", "196020", { venue: "swapkit+uniswap", legs })];
+    deps.requestQuote.mockResolvedValue({ status: 200, body: { requestId: "r_1", swapToken: "tok", routes, payment: { transactionId: "0.0.1@1.1" } } });
+    deps.readQuote.mockImplementation(async (key: string) => ({ owner: WRITER, payload: routes.find((r) => r.arkiv.entityKey === key) }));
     deps.requestSwap.mockResolvedValue({
       status: 200,
       body: { swapId: "s_1", venue: "swapkit", leg: 1, legCount: 2, transactions: [tx] },
@@ -286,6 +299,34 @@ describe("two-leg routes", () => {
     expect(result).toMatchObject({ outcome: "stopped", swapId: "s_1" });
     expect(result.reason).toContain("0.199");
     expect(deps.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips a two-leg route whose second leg another wallet would have to sign", async () => {
+    const result = await runAgent(deps as unknown as AgentDeps, { ...goal, from: { asset: "bsc:bnb", amount: "1", address: EVM }, to: { asset: "eth:pepe", address: "0x1111111111111111111111111111111111111111" } });
+    expect(result).toMatchObject({ outcome: "stopped" });
+    expect(result.reason).toContain("another wallet");
+    expect(deps.requestSwap).not.toHaveBeenCalled();
+  });
+
+  it("takes a two-leg route whose hub lands in its own wallet", async () => {
+    (deps as any).ownAddresses = [EVM.toLowerCase()];
+    const result = await runAgent(deps as unknown as AgentDeps, { ...goal, from: { asset: "bsc:bnb", amount: "1", address: EVM }, to: { asset: "eth:pepe", address: EVM } });
+    expect(result.outcome).toBe("completed");
+  });
+
+  it("keeps some of a native hub back for the second leg's gas", async () => {
+    (deps as any).spendableHub = vi.fn(async () => "0.19");
+    await run();
+    expect((deps as any).spendableHub).toHaveBeenCalledWith("eth:eth", "0.199");
+    expect((deps as any).requestNextLeg).toHaveBeenCalledWith("s_1", "tok", "0.19");
+  });
+
+  it("stops holding the hub token when there's no gas for the second leg", async () => {
+    (deps as any).spendableHub = vi.fn(async () => null);
+    const result = await run();
+    expect(result).toMatchObject({ outcome: "stopped", swapId: "s_1" });
+    expect(result.reason).toContain("gas");
+    expect((deps as any).requestNextLeg).not.toHaveBeenCalled();
   });
 
   it("stops holding the hub token when the second leg can't be sent", async () => {

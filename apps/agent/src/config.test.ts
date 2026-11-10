@@ -90,4 +90,22 @@ describe("resolveGoal", () => {
   it("requires a pair and amount", async () => {
     await expect(resolveGoal(["--from", "base:eth"], SENDER, never)).rejects.toThrow(/--to/);
   });
+
+  it("sends from its Solana wallet when the source is on Solana", async () => {
+    const SOLANA = "GZRiD2TR1oiSXXFDsGhLR5fZWbfHqY9KyfHkiChUuVBR";
+    const fromSolana = ["--from", "sol:sol", "--to", "base:eth", "--amount", "0.1", "--recipient", RECEIVER];
+    expect(await resolveGoal(fromSolana, SENDER, never, SOLANA)).toMatchObject({ from: { address: SOLANA }, refundAddress: SOLANA });
+    await expect(resolveGoal(fromSolana, SENDER, never)).rejects.toThrow(/AGENT_SOLANA_KEY/);
+  });
+});
+
+describe("loadAgentConfig for Solana", () => {
+  it("takes a Solana key and RPC only when given", () => {
+    expect(loadAgentConfig(env).solanaSecretKey).toBeUndefined();
+    expect(loadAgentConfig(env).solanaRpcUrl).toBe("https://api.mainnet-beta.solana.com");
+    expect(loadAgentConfig({ ...env, AGENT_SOLANA_KEY: "secret", SOLANA_RPC_URL: "https://rpc.example" })).toMatchObject({
+      solanaSecretKey: "secret",
+      solanaRpcUrl: "https://rpc.example",
+    });
+  });
 });

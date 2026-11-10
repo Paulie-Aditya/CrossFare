@@ -49,8 +49,12 @@ export interface AgentDeps {
   readQuote(entityKey: string): Promise<{ owner: string; payload: any }>;
   listQuotes(): Promise<{ quoteId: string; entityKey: string }[]>;
   requestSwap(quoteId: string, swapToken: string): Promise<ApiResponse>;
-  /** Prepares the second leg of a two-leg route once the first has delivered. */
-  requestNextLeg(swapId: string, swapToken: string): Promise<ApiResponse>;
+  /** Prepares the second leg of a two-leg route once the first has delivered, optionally on less than arrived. */
+  requestNextLeg(swapId: string, swapToken: string, amount?: string): Promise<ApiResponse>;
+  /** How much of a hub that arrived the second leg can spend, leaving gas; null when there isn't gas. */
+  spendableHub?(hub: string, received: string): Promise<string | null>;
+  /** Signs a Solana transaction with the agent's Solana wallet and sends it, returning its signature. */
+  sendSolanaTransaction?(transaction: { transaction: string; lastValidBlockHeight: number }): Promise<string>;
   sendTransaction(transaction: AgentTransaction): Promise<string>;
   submitHash(swapId: string, hash: string): Promise<void>;
   getStatus(swapId: string): Promise<SwapStatusResponse>;
@@ -59,6 +63,8 @@ export interface AgentDeps {
   /** Swaps spend real funds, so the owner must turn this on beforehand. */
   allowLiveSwaps: boolean;
   allowedPayTo: readonly string[];
+  /** The agent's own addresses. Defaults to the goal's sender. */
+  ownAddresses?: readonly string[];
   pollIntervalMs: number;
   maxPolls: number;
 }
@@ -153,12 +159,21 @@ export async function runAgent(deps: AgentDeps, goal: Goal): Promise<AgentResult
   }
   if (verified.length === 0) return stop(deps, "no quote could be verified on Arkiv");
 
-  let chosen = verified.reduce((best, route) =>
+  // A hub off the source chain lands at the receiving address, whose wallet signs the second leg.
+  const own = (deps.ownAddresses ?? [goal.from.address]).map((entry) => entry.toLowerCase());
+  const sourceChain = goal.from.asset.split(":")[0];
+  const signable = verified.filter((route) => {
+    const hub = route.legs?.[0]?.to;
+    return !hub || hub.split(":")[0] === sourceChain || own.includes(goal.to.address.toLowerCase());
+  });
+  if (signable.length === 0) return stop(deps, "every route needs another wallet to sign its second leg");
+
+  let chosen = signable.reduce((best, route) =>
     compareAmounts(route.minAmountOut, best.minAmountOut) > 0 ? route : best,
   );
   deps.log(
     `Chose ${chosen.quoteId} (${chosen.venue}${chosen.provider ? `/${chosen.provider}` : ""}): ` +
-      `guarantees at least ${chosen.minAmountOut} ${goal.to.asset}, the best of ${verified.length} verified`,
+      `guarantees at least ${chosen.minAmountOut} ${goal.to.asset}, the best of ${signable.length} verified`,
   );
 
   if (!deps.allowLiveSwaps) {
@@ -189,11 +204,22 @@ export async function runAgent(deps: AgentDeps, goal: Goal): Promise<AgentResult
   if (swap.body.payment) deps.log(`Paid for execution: ${hashscan(swap.body.payment.transactionId)}`);
 
   /** Signs and sends one leg's transactions in order. Returns why it couldn't, if it couldn't. */
-  async function send(body: { transactions?: AgentTransaction[]; solana?: unknown; leg?: number; legCount?: number }): Promise<string | null> {
+  async function send(body: {
+    transactions?: AgentTransaction[];
+    solana?: { transaction: string; lastValidBlockHeight: number };
+    leg?: number;
+    legCount?: number;
+  }): Promise<string | null> {
     const transactions = body.transactions ?? [];
-    if (body.solana) return "route needs a Solana signature, which this agent can't make";
-    if (transactions.length === 0) return "route needs a deposit from a non-EVM wallet, which this agent lacks";
     if (body.leg) deps.log(`Leg ${body.leg} of ${body.legCount}:`);
+    if (body.solana) {
+      if (!deps.sendSolanaTransaction) return "route needs a Solana signature, and AGENT_SOLANA_KEY isn't set";
+      const signature = await deps.sendSolanaTransaction(body.solana);
+      deps.log(`Sent Solana transaction: ${signature}`);
+      await deps.submitHash(swapId, signature);
+      return null;
+    }
+    if (transactions.length === 0) return "route needs a deposit from a non-EVM wallet, which this agent lacks";
     for (const transaction of transactions) {
       const hash = await deps.sendTransaction(transaction);
       deps.log(`Sent ${transaction.kind} transaction: ${hash}`);
@@ -212,9 +238,16 @@ export async function runAgent(deps: AgentDeps, goal: Goal): Promise<AgentResult
       // The hub token is in this wallet now. If the second leg can't run, it stays there, safe.
       const held = `${status.legs?.at(-1)?.amountReceived ?? "the"} ${chosen.legs?.[0]?.to ?? "hub token"}`;
       const holding = (why: string) => ({ ...stop(deps, `${why}; holding ${held} in this wallet`), swapId });
+      const hub = chosen.legs?.[0]?.to;
+      const received = status.legs?.at(-1)?.amountReceived;
       let next: ApiResponse;
       try {
-        next = await deps.requestNextLeg(swapId, quoted.body.swapToken);
+        // A native hub pays the second leg's gas too, so part of it may have to stay behind.
+        const spendable = deps.spendableHub && hub && received ? await deps.spendableHub(hub, received) : received;
+        if (spendable === null) return holding("not enough gas for the second leg");
+        next = spendable && spendable !== received
+          ? await deps.requestNextLeg(swapId, quoted.body.swapToken, spendable)
+          : await deps.requestNextLeg(swapId, quoted.body.swapToken);
       } catch (error) {
         return holding((error as Error).message);
       }

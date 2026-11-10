@@ -12,6 +12,7 @@
     "@arkiv-network/sdk": "^1.0.1",
     "@crossfare/core": "workspace:*",
     "@hiero-ledger/sdk": "^2.90.1",
+    "@solana/kit": "8.5.0",
     "@x402/core": "^2.30.0",
     "@x402/fetch": "^2.30.0",
     "@x402/hedera": "^2.30.0",
