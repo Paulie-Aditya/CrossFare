@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { useAccount, useConfig, useSendTransaction, useSwitchChain } from "wagmi";
-import { waitForTransactionReceipt } from "wagmi/actions";
+import { getBalance, getGasPrice, waitForTransactionReceipt } from "wagmi/actions";
+import { formatUnits, parseUnits } from "viem";
 import { QRCodeSVG } from "qrcode.react";
 import { get, post } from "./api.ts";
 import { chainLabel, chainNameOf, contractOf, isEvmAsset, isUnverified, symbolOf, type AssetOption, type CatalogStatus, type ChainOption } from "./asset-book.ts";
@@ -27,6 +28,9 @@ import {
   orderStages,
   reduceJourney,
   routeAction,
+  routeLabel,
+  nativeHubChain,
+  spendableAfterGas,
   noRouteMessage,
   sentComparedToQuote,
   shorten,
@@ -39,8 +43,12 @@ import {
   type Deposit,
   type OrderStage,
   type PublicRoute,
+  type RouteWallets,
+  type SolanaTransaction,
   type SwapTransaction,
 } from "./journey.ts";
+import { SolanaWalletChooser, useSolanaWallet } from "./SolanaWallet.tsx";
+import { walletChain } from "./wallet-chains.ts";
 import { useLivePrice } from "./live-price.ts";
 import { InFlight, Stepper } from "./OrderTracker.tsx";
 import { TokenButton } from "./TokenPicker.tsx";
@@ -52,8 +60,10 @@ const ARKIV_POLL_MS = 5_000;
 const BASE_TITLE = "Crossfare";
 
 const looksEvm = (address: string) => /^0x/i.test(address.trim());
-const providerName = (route: PublicRoute) => venueLabel(route.venue, route.provider).full;
-const providerShort = (route: PublicRoute | undefined) => venueLabel(route?.venue, route?.provider).short;
+const providerName = (route: PublicRoute) => routeLabel(route);
+const providerShort = (route: PublicRoute | undefined) => (route?.legs ? routeLabel(route) : venueLabel(route?.venue, route?.provider).short);
+/** Gas for a second leg: a swap, approvals included, at twice the current price. */
+const SECOND_LEG_GAS = 600_000n;
 
 function useNow(active: boolean): Date {
   const [now, setNow] = useState(() => new Date());
@@ -112,14 +122,17 @@ function RouteRow(props: {
   disabled: boolean;
   chosen: boolean;
   connected: boolean;
+  wallets: RouteWallets;
   onSwap: () => void;
   onConnect: () => void;
+  onConnectSolana: () => void;
 }) {
-  const { route, from, to, amount, isBest, advantage, now, disabled, chosen, connected, onSwap, onConnect } = props;
+  const { route, from, to, amount, isBest, advantage, now, disabled, chosen, connected, wallets, onSwap, onConnect, onConnectSolana } = props;
   const countdown = formatCountdown(route.validUntil, now);
   const expired = countdown === "Expired";
   const sourceChain = from.split(":")[0] ?? "";
-  const action = routeAction(route, connected, sourceChain);
+  const action = routeAction(route, connected, sourceChain, wallets);
+  const hub = route.legs?.[0];
   const actionLabel = chosen
     ? "Preparing"
     : expired
@@ -130,7 +143,13 @@ function RouteRow(props: {
           ? "Swap with wallet"
           : action === "connect"
             ? "Connect a wallet for this route"
-            : `Needs a ${chainLabel(sourceChain)} wallet`;
+            : action === "solana"
+              ? "Swap with Solana wallet"
+              : action === "connect-solana"
+                ? "Connect a Solana wallet"
+                : action === "other-wallet"
+                  ? "Second leg needs your receiving wallet"
+                  : `Needs a ${chainLabel(sourceChain)} wallet`;
   const usdOut = formatUsd(route.usd?.out);
   const usdIn = formatUsd(route.usd?.in);
   const rate = formatRate(amount, route.amountOut, symbolOf(from), symbolOf(to));
@@ -141,6 +160,11 @@ function RouteRow(props: {
     <article className={isBest ? "route route-best glass" : "route glass"} data-chosen={chosen || undefined}>
       <div className="route-head">
         <p className="route-venue">{providerName(route)}</p>
+        {hub && (
+          <p className="route-badge route-legs">
+            2 steps, through {formatAmount(hub.amountOut)} {symbolOf(hub.to)}
+          </p>
+        )}
         {isBest && <p className="route-badge">{advantage ? `Best price, ${advantage} more` : "Best price"}</p>}
         <p className={expired ? "route-clock is-expired" : "route-clock"} aria-label={`Quote valid for ${countdown}`}>
           {countdown}
@@ -191,7 +215,11 @@ function RouteRow(props: {
         ) : (
           <span className="route-pending">Publishing to Arkiv</span>
         )}
-        <button className="route-action" disabled={disabled || action === "unsupported"} onClick={action === "connect" ? onConnect : onSwap}>
+        <button
+          className="route-action"
+          disabled={disabled || action === "unsupported" || action === "other-wallet"}
+          onClick={action === "connect" ? onConnect : action === "connect-solana" ? onConnectSolana : onSwap}
+        >
           {chosen && <span className="spinner" aria-hidden="true" />}
           {actionLabel}
         </button>
@@ -342,6 +370,10 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
   const { sendTransactionAsync } = useSendTransaction();
 
   const [state, dispatch] = useReducer(reduceJourney, initialJourney);
+  const solana = useSolanaWallet();
+  const [solanaChooserOpen, setSolanaChooserOpen] = useState(false);
+  /** A second leg priced below the guarantee, which the person may still accept. */
+  const [nextLegOffer, setNextLegOffer] = useState<{ amountOut: string; minAmountOut: string } | null>(null);
   const [from, setFrom] = useState("eth:usdc");
   const [to, setTo] = useState("base:eth");
   const [amount, setAmount] = useState("5");
@@ -408,6 +440,9 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
   useEffect(() => {
     if (address && isEvmAsset(from)) setRefundAddress(address);
   }, [address, from, assets]);
+  useEffect(() => {
+    if (solana.account && from.startsWith("sol:")) setRefundAddress(solana.account.address);
+  }, [solana.account, from]);
 
   // An address for one kind of chain is useless on another, so it isn't carried across.
   useEffect(() => {
@@ -450,6 +485,9 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
           depositShort: answer.body.depositShort,
           refundReason: answer.body.refundReason,
           partialRefund: answer.body.partialRefund,
+          leg: answer.body.leg,
+          legCount: answer.body.legCount,
+          legs: answer.body.legs,
         });
       }
       timer = setTimeout(poll, STATUS_POLL_MS);
@@ -511,9 +549,83 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
     }
     if (!answer.ok) return dispatch({ type: "failed", message: answer.message });
 
-    const { swapId, transactions, deposit, payment } = answer.body;
-    dispatch({ type: "swap_prepared", swapId, swapPayment: payment?.transactionId ?? null, transactions, deposit });
-    if (!deposit) await signWithWallet(swapId, transactions);
+    const { swapId, transactions, deposit, payment, solana: solanaTx, leg, legCount } = answer.body;
+    dispatch({ type: "swap_prepared", swapId, swapPayment: payment?.transactionId ?? null, transactions, deposit, solana: solanaTx, leg, legCount });
+    if (solanaTx) await signWithSolana(swapId, solanaTx);
+    else if (!deposit) await signWithWallet(swapId, transactions);
+  }
+
+  async function signWithSolana(swapId: string, transaction: SolanaTransaction) {
+    try {
+      const signature = await solana.signAndSend(transaction.transaction);
+      dispatch({ type: "tx_sent", hash: signature });
+      await post(`/v1/swaps/${swapId}/tx`, { hash: signature });
+      dispatch({ type: "signed" });
+    } catch (error) {
+      const rejected = /reject|denied/i.test((error as Error).message);
+      dispatch({
+        type: "failed",
+        message: rejected
+          ? "You rejected the transaction in your Solana wallet, and nothing was sent."
+          : "The Solana transaction did not go through. It lapses about a minute after the quote, so get a new price and try again.",
+      });
+    }
+  }
+
+  /** How much of the hub to spend: all of it, unless it is the gas coin and the wallet needs some for gas. */
+  async function spendableHub(hub: string, received: string, holder: string): Promise<string | null> {
+    const chainId = nativeHubChain(hub);
+    const chain = chainId ? walletChain(hub.split(":")[0] ?? "") : undefined;
+    if (!chainId || !chain) return received;
+    const target = chainId as WalletChainId;
+    const [balance, gasPrice] = await Promise.all([
+      getBalance(config, { address: holder as `0x${string}`, chainId: target }),
+      getGasPrice(config, { chainId: target }),
+    ]);
+    const decimals = chain.nativeCurrency.decimals;
+    const amount = spendableAfterGas(parseUnits(received, decimals), balance.value, gasPrice * SECOND_LEG_GAS * 2n);
+    return amount === null ? null : formatUnits(amount, decimals);
+  }
+
+  /** Once the first leg has delivered, prepares and signs the second (FR-14). */
+  async function continueSecondLeg(minAmountOut?: string) {
+    const route = state.routes.find((entry) => entry.quoteId === state.chosenQuoteId);
+    const hub = route?.legs?.[0]?.to;
+    if (!state.swapId || !hub || !state.hubReceived) return;
+    const swapId = state.swapId;
+    setNextLegOffer(null);
+    dispatch({ type: "next_leg_requested" });
+    const holder = hub.split(":")[0] === from.split(":")[0] ? refundAddress : recipient;
+    let amount: string | null;
+    try {
+      amount = await spendableHub(hub, state.hubReceived, holder.trim());
+    } catch {
+      amount = state.hubReceived;
+    }
+    if (amount === null) {
+      return dispatch({
+        type: "failed",
+        message: `Your ${symbolOf(hub)} is in your wallet, but not enough to pay the second leg's gas as well. Add a little ${symbolOf(hub)}, then continue.`,
+      });
+    }
+    const answer = await post(`/v1/swaps/${swapId}/next`, {
+      swapToken: state.swapToken,
+      ...(amount !== state.hubReceived ? { amount } : {}),
+      ...(minAmountOut ? { minAmountOut } : {}),
+    }).catch(() => null);
+    if (!answer) return dispatch({ type: "failed", message: "Crossfare did not answer. Your first leg's tokens are safe in your wallet; try again." });
+    if (answer.status === 409 && answer.body?.error === "price_moved") {
+      setNextLegOffer(answer.body.leg);
+      return dispatch({
+        type: "failed",
+        message: `The second leg's price moved: it now gives about ${formatAmount(answer.body.leg.amountOut)} ${symbolOf(to)}, below the minimum you were quoted. Your ${symbolOf(hub)} is safe in your wallet.`,
+      });
+    }
+    if (!answer.ok) return dispatch({ type: "failed", message: answer.message });
+    const { transactions, solana: solanaTx, leg, legCount } = answer.body;
+    dispatch({ type: "swap_prepared", swapId, swapPayment: null, transactions, solana: solanaTx, leg, legCount });
+    if (solanaTx) await signWithSolana(swapId, solanaTx);
+    else await signWithWallet(swapId, transactions);
   }
 
   async function signWithWallet(swapId: string, transactions: SwapTransaction[]) {
@@ -774,10 +886,17 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
               advantage={bestAdvantage(state.routes)}
               now={now}
               connected={isConnected}
+              wallets={{
+                ...(address ? { evm: address } : {}),
+                ...(solana.account ? { solana: solana.account.address } : {}),
+                sender: refundAddress,
+                recipient,
+              }}
               chosen={state.chosenQuoteId === route.quoteId}
               disabled={busy}
               onSwap={() => swap(route)}
               onConnect={onConnectWallet}
+              onConnectSolana={() => setSolanaChooserOpen(true)}
             />
           ))}
         </section>
@@ -812,6 +931,33 @@ export function SwapPage(props: { onConnectWallet: () => void; assets: AssetOpti
           onStartOver={() => dispatch({ type: "reset" })}
         />
       )}
+
+      {state.swapStatus === "awaiting_next_leg" && (
+        <section className="order glass" aria-label="Second leg">
+          <Stepper stages={stages} />
+          <div className="order-head">
+            <h2>First leg done</h2>
+          </div>
+          <p className="order-lead">
+            {state.hubReceived ? `${formatAmount(state.hubReceived)} ${symbolOf(chosen?.legs?.[0]?.to ?? "")}` : "The first leg's tokens"} arrived in
+            your wallet. Sign the second leg to finish the swap into {symbolOf(to)}.
+          </p>
+          <div className="order-actions">
+            <button className="primary order-send" disabled={busy} onClick={() => continueSecondLeg()}>
+              {busy && <span className="spinner" aria-hidden="true" />}
+              {busy ? "Preparing" : "Sign the second leg"}
+            </button>
+            {nextLegOffer && !busy && (
+              <button className="ghost" onClick={() => continueSecondLeg(nextLegOffer.minAmountOut)}>
+                Accept at least {formatAmount(nextLegOffer.minAmountOut)} {symbolOf(to)}
+              </button>
+            )}
+          </div>
+          <p className="order-note">Nothing happens until you sign. Your tokens stay in your wallet if you stop here.</p>
+        </section>
+      )}
+
+      {solanaChooserOpen && <SolanaWalletChooser solana={solana} onClose={() => setSolanaChooserOpen(false)} />}
 
       {state.step === "signing" && !state.deposit && (
         <p className="message message-wait glass" role="status">

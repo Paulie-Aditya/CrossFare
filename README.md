@@ -6,7 +6,7 @@ For example: you tell your agent to swap 5 USDC on Ethereum to ETH on Base. It a
 
 Built at ETHGlobal Mumbai, Classic track.
 
-**Try it:** [crossfare.vercel.app](https://crossfare.vercel.app). There's no account to create and no wallet to connect, though swaps use real funds on mainnet, so keep them small.
+**Try it:** [crossfare.vercel.app](https://crossfare.vercel.app). There's no account to create and no wallet to connect, though swaps use real funds on mainnet, so keep them small. With an EVM wallet connected, the page also offers routes in two legs and asks you to sign the second once the first lands. With a Solana wallet such as Phantom connected, it signs Jupiter's Solana swaps.
 
 **Demo video (2 minutes 43 seconds):** a real 10 USDC swap on the deployed site, from quote to delivery, with the payment on HashScan and the quote on Arkiv. Click the image to download it (14 MB, MP4): GitHub can't play a video this size from the repo.
 
