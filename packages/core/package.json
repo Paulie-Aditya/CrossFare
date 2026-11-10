@@ -9,7 +9,8 @@
     "./arkiv-schema": "./src/arkiv-schema.ts",
     "./evm-chains": "./src/evm-chains.ts",
     "./hedera-key": "./src/hedera-key.ts",
-    "./pancakeswap-router": "./src/venues/pancakeswap-router.ts"
+    "./pancakeswap-router": "./src/venues/pancakeswap-router.ts",
+    "./solana": "./src/venues/solana.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -21,6 +22,7 @@
     "@pancakeswap/sdk": "5.9.3",
     "@pancakeswap/smart-router": "7.8.0",
     "@pancakeswap/universal-router-sdk": "1.5.7",
+    "@solana/kit": "8.5.0",
     "abitype": "1.3.0",
     "lodash": "4.18.1",
     "tiny-invariant": "1.3.3",

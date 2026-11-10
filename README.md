@@ -203,7 +203,7 @@ The live site runs the API on [EC2](docs/deploy-ec2.md) and the UI on [Vercel](d
 
 ## Built with
 
-Open-source libraries, used as published: [Hono](https://hono.dev), [`@x402/core`, `@x402/hedera`, `@x402/fetch`](https://github.com/x402-foundation/x402), [`@hiero-ledger/sdk`](https://github.com/hiero-ledger/hiero-sdk-js), [`@arkiv-network/sdk`](https://hub.arkiv.network), [viem](https://viem.sh), [React](https://react.dev), [Vite](https://vite.dev), [wagmi](https://wagmi.sh), [qrcode.react](https://github.com/zpao/qrcode.react), [PancakeSwap's Smart Router and Universal Router SDKs](https://developer.pancakeswap.finance/sdks/smart-router) and [Vitest](https://vitest.dev). No starter kit was used. Code up to the submission was written during the hackathon; later work is in the commit history.
+Open-source libraries, used as published: [Hono](https://hono.dev), [`@x402/core`, `@x402/hedera`, `@x402/fetch`](https://github.com/x402-foundation/x402), [`@hiero-ledger/sdk`](https://github.com/hiero-ledger/hiero-sdk-js), [`@arkiv-network/sdk`](https://hub.arkiv.network), [viem](https://viem.sh), [React](https://react.dev), [Vite](https://vite.dev), [wagmi](https://wagmi.sh), [qrcode.react](https://github.com/zpao/qrcode.react), [PancakeSwap's Smart Router and Universal Router SDKs](https://developer.pancakeswap.finance/sdks/smart-router), [`@solana/kit`](https://github.com/anza-xyz/kit) and [Vitest](https://vitest.dev). No starter kit was used. Code up to the submission was written during the hackathon; later work is in the commit history.
 
 ## AI use
 
