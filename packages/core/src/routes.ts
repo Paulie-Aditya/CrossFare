@@ -22,6 +22,11 @@ export interface Route {
   depositable?: boolean;
   /** Venue-specific state needed to execute. Private: never published or returned. */
   venueData: unknown;
+  /**
+   * Set on a route that runs in steps (FR-14): each leg is a route of its own, and the caller
+   * executes them in order, holding the token between them in their own wallet.
+   */
+  legs?: Route[];
 }
 
 export function rankRoutes(routes: readonly Route[]): Route[] {
