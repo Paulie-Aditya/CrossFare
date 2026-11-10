@@ -85,7 +85,8 @@ describe("hubAssets", () => {
   });
 
   it("counts a native coin listed twice under one ID once", () => {
-    registerAssets([PEPE, USDT, BNB, BSC_USDC, FAKE_USDC, THOR_RUNE, THOR_TCY, { ...BNB, swapkit: undefined }]);
+    const { swapkit: _dropped, ...bareBnb } = BNB;
+    registerAssets([PEPE, USDT, BNB, BSC_USDC, FAKE_USDC, THOR_RUNE, THOR_TCY, bareBnb]);
     try {
       expect(hubAssets("bsc")[0]).toBe("bsc:bnb");
     } finally {
