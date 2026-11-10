@@ -157,6 +157,8 @@ export function createUniswapVenue(options: UniswapOptions): Venue {
   return {
     name: VENUE,
 
+    serves: (from, to) => samePairChain(from, to) !== null,
+
     async quote(request: QuoteRequest): Promise<Route[]> {
       const from = getAsset(request.from.asset);
       const to = getAsset(request.to.asset);

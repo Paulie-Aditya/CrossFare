@@ -117,6 +117,14 @@ export function createThorchainVenue(options: ThorchainOptions): Venue {
     name: VENUE,
     replaces: ["thorchain", "thorchain_streaming"],
 
+    serves(from, to) {
+      const fromPool = poolName(from);
+      const toPool = poolName(to);
+      if (!fromPool || !toPool) return false;
+      // Before the pools are read, any pool name might be one.
+      return !pools || (pools.names.has(fromPool) && pools.names.has(toPool));
+    },
+
     async quote(request: QuoteRequest): Promise<Route[]> {
       // THORChain fills exact inputs only, and refunds to the sender, which for an exchange isn't the caller.
       if (request.mode !== "exact_in" || request.flexibleDeposit) return [];

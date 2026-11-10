@@ -220,6 +220,9 @@ export function createNearIntentsVenue(options: NearIntentsOptions): Venue {
     name: VENUE,
     replaces: ["near"],
 
+    // 1Click's token list is fetched, so this goes by chain: a token it doesn't list still answers no route.
+    serves: (from, to) => locate(from) !== undefined && locate(to) !== undefined,
+
     async quote(request: QuoteRequest): Promise<Route[]> {
       // 1Click won't quote without real addresses, and it has a price check's worth of nothing to say.
       if (request.indicative) return [];

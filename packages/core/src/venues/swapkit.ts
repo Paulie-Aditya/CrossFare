@@ -150,6 +150,8 @@ export function createSwapKitVenue(options: SwapKitOptions): Venue {
   return {
     name: VENUE,
 
+    serves: (from, to) => !!from.swapkit && !!to.swapkit,
+
     async quote(request: QuoteRequest): Promise<Route[]> {
       const from = getAsset(request.from.asset);
       const to = getAsset(request.to.asset);

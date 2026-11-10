@@ -1,4 +1,4 @@
-import type { AssetId } from "../assets.ts";
+import type { Asset, AssetId } from "../assets.ts";
 import type { Route } from "../routes.ts";
 
 export interface QuoteRequest {
@@ -109,6 +109,12 @@ export interface Venue {
    * through those providers are dropped, so SwapKit stays the fallback for them.
    */
   readonly replaces?: readonly string[];
+  /**
+   * Whether the venue might serve the pair, judged from what it already knows, with no network
+   * call. False is certain; true only means a quote is worth asking for. Route planning uses it to
+   * skip venues, so a venue without it is always asked.
+   */
+  serves?(from: Asset, to: Asset): boolean;
   /** Returns no routes when the venue can't serve the pair; throws VenueError on failure. */
   quote(request: QuoteRequest): Promise<Route[]>;
   prepare(route: Route, request: QuoteRequest): Promise<PreparedSwap>;
