@@ -111,7 +111,7 @@ sequenceDiagram
 | `GET /.well-known/x402` | Free | Endpoints, prices, payment details, Arkiv writer |
 | `GET /v1/assets` | Free | Every token SwapKit or Uniswap's default list carries, plus each chain's native coin, with logos and chains. Loaded at startup and refreshed daily |
 | `GET /v1/tokens/:address?chain=` | Free | Any ERC-20 by contract on a chain Uniswap trades on, or on all of them without `chain`. A token on no list is read from the chain and marked `verified: false` |
-| `POST /v1/quote` | 0.01 USDC | Ranked routes from every venue that supports the pair |
+| `POST /v1/quote` | 0.01 USDC | Ranked routes from every venue that supports the pair. With `"multiLeg": true`, a pair no venue serves gets routes in two legs through a hub token |
 | `POST /v1/swap` | Free for now | Prepare one quote for execution. Needs the `swapToken` from its quote response |
 | `POST /v1/swaps/:id/tx` | Free | Report the broadcast transaction hash |
 | `GET /v1/price?from=&to=&amount=` | Free | An indicative price for the UI while someone types. It isn't published, can't be executed and shares a rate limit between callers. |

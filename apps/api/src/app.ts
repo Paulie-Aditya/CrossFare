@@ -21,6 +21,7 @@ import {
   type SwapStatus,
   type Venue,
   describeSwap,
+  findTwoLegRoutes,
   withUsdValues,
   type Deposit,
   contractRef,
@@ -178,6 +179,20 @@ function publicAsset(asset: Asset) {
   };
 }
 
+/** One leg of a two-leg route, each amount in its own token's units. */
+function humanLeg(leg: Route) {
+  return {
+    venue: leg.venue,
+    ...(leg.provider ? { provider: leg.provider } : {}),
+    from: leg.from,
+    to: leg.to,
+    amountIn: fromBaseUnits(leg.amountIn, getAsset(leg.from).decimals),
+    amountOut: fromBaseUnits(leg.amountOut, getAsset(leg.to).decimals),
+    minAmountOut: fromBaseUnits(leg.minAmountOut, getAsset(leg.to).decimals),
+    etaSeconds: leg.etaSeconds,
+  };
+}
+
 function humanRoute(route: Route) {
   const decimals = getAsset(route.to).decimals;
   return {
@@ -190,6 +205,7 @@ function humanRoute(route: Route) {
     validUntil: route.validUntil,
     depositable: route.depositable ?? false,
     ...(route.usd ? { usd: route.usd } : {}),
+    ...(route.legs ? { legs: route.legs.map(humanLeg) } : {}),
   };
 }
 
@@ -403,16 +419,22 @@ export function createApp(deps: AppDeps): Hono {
     const parsed = parseQuoteRequest(await withCanonicalAssets(parseJson(rawBody)));
     if (!("request" in parsed)) return c.json({ error: parsed.error }, parsed.status);
     const { request } = parsed;
+    // A two-leg route needs the caller to sign twice, so only a caller that asks gets one (FR-14).
+    const multiLeg = (parseJson(rawBody) as { multiLeg?: unknown } | null)?.multiLeg === true;
 
     const result = await charged(c, QUOTE_ENDPOINT, "quote", rawBody,
       async (payer) => {
         const answers = await Promise.allSettled(venues.map((venue) => venue.quote(request)));
-        const routes = withUsdValues(preferDirectRoutes(venues, answers.flatMap((answer) => (answer.status === "fulfilled" ? answer.value : []))));
+        let routes = withUsdValues(preferDirectRoutes(venues, answers.flatMap((answer) => (answer.status === "fulfilled" ? answer.value : []))));
         for (const answer of answers) {
           if (answer.status === "rejected") onError("venue quote failed", answer.reason);
         }
+        const allFailed = answers.length > 0 && answers.every((answer) => answer.status === "rejected");
+        // Only when nothing direct exists: each search costs several upstream quotes.
+        if (routes.length === 0 && multiLeg && !allFailed) {
+          routes = await findTwoLegRoutes(venues, request, { onError: (error) => onError("venue leg quote failed", error) });
+        }
         if (routes.length === 0) {
-          const allFailed = answers.length > 0 && answers.every((answer) => answer.status === "rejected");
           return allFailed
             ? { status: 502, body: { error: "venues_unavailable" } }
             : { status: 422, body: { error: "no_route" } };

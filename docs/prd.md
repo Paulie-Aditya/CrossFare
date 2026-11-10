@@ -433,6 +433,8 @@ Response:
 
 Numbers and pairs here are illustrative; the demo pairs are under Demo configuration. Routes are sorted by `minAmountOut`, highest first.
 
+**Two-leg routes (FR-14).** With `"multiLeg": true` in the request and no direct route from any venue, Crossfare looks for a route in two legs through a hub token: the native coin, USDC or USDT on the source or destination chain, picked by contract. It tries at most two hubs, and asks only the venues that can serve each leg. Such a route's `venue` joins the legs' venues, for example `swapkit+uniswap`, and it carries `legs`, each with its own `venue`, `provider`, `from`, `to`, `amountIn`, `amountOut`, `minAmountOut` and `etaSeconds` in that token's units. Fees are labelled by leg (`leg1.networkUsd`). `minAmountOut` is the second leg's minimum on the first leg's minimum. The caller holds the hub token in their own wallet between legs: the sender's address when the hub is on the source chain, the receiving address when it's on the destination. The caller's `fee` is charged on the last leg only. Without `multiLeg`, nothing changes.
+
 ### POST /v1/swap
 
 Request: `{ "quoteId": "q_7f3a", "swapToken": "…" }`. Crossfare rejects an expired quote and re-quotes when the price moved past `slippageBps`.
