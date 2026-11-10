@@ -114,6 +114,7 @@ sequenceDiagram
 | `POST /v1/quote` | 0.01 USDC | Ranked routes from every venue that supports the pair. With `"multiLeg": true`, a pair no venue serves gets routes in two legs through a hub token |
 | `POST /v1/swap` | Free for now | Prepare one quote for execution. Needs the `swapToken` from its quote response |
 | `POST /v1/swaps/:id/tx` | Free | Report the broadcast transaction hash |
+| `POST /v1/swaps/:id/next` | Free | Prepare the second leg of a two-leg route once the first has delivered. Needs the `swapToken` |
 | `GET /v1/price?from=&to=&amount=` | Free | An indicative price for the UI while someone types. It isn't published, can't be executed and shares a rate limit between callers. |
 | `GET /v1/swaps/:id` | Free | Swap status. It reads the deposit address on chain as well as asking the provider, so a deposit shows within seconds. It also reports what was really deposited, and any shortfall below the provider's minimum. |
 | `GET /v1/quotes` | Free | Recent quotes, or one payer's with `?payer=`, read from Arkiv |

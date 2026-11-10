@@ -30,6 +30,27 @@ export interface StoredSwap {
   txHashes?: string[];
   amountReceived?: string | null;
   depositDetails?: DepositDetails;
+  /** The leg in progress, from 0, on a two-leg route (FR-14). Null for a one-leg swap. */
+  leg?: number | null;
+  /** Legs that have finished, in order. The fields above describe the leg in progress. */
+  legs?: FinishedLeg[];
+}
+
+export interface FinishedLeg {
+  venue: string;
+  provider?: string;
+  status: SwapStatus;
+  txHashes: string[];
+  /** Decimal amount of the hub token the leg delivered, when the venue reported it. */
+  amountReceived?: string;
+}
+
+/** What the next leg starts with. Hashes, amounts and deposit details start empty. */
+export interface NextLeg {
+  leg: number;
+  venue: string;
+  prepared: unknown;
+  venueSwapId: string | null;
 }
 
 /** What really happened to a deposit, which can differ from the quote. */
@@ -90,7 +111,7 @@ export interface VipUsageLine {
   calls: number;
 }
 
-export type SwapUpdate = Partial<Pick<StoredSwap, "status" | "txHashes" | "amountReceived" | "depositDetails">>;
+export type SwapUpdate = Partial<Pick<StoredSwap, "status" | "txHashes" | "amountReceived" | "depositDetails" | "legs">>;
 
 export interface Store {
   /** Returns false when this payment was already claimed: the replay check. */
@@ -107,6 +128,8 @@ export interface Store {
   getSwap(id: string): StoredSwap | null;
   getSwapByQuote(quoteId: string): StoredSwap | null;
   updateSwap(id: string, update: SwapUpdate): void;
+  /** Moves a two-leg swap onto its next leg, awaiting the caller. */
+  startLeg(id: string, next: NextLeg): void;
   saveVipKey(key: VipKeyRecord): void;
   getVipKeyByHash(keyHash: string): VipKeyRecord | null;
   listVipKeys(): VipKeyRecord[];
@@ -154,7 +177,9 @@ const SCHEMA = `
     venue_swap_id TEXT,
     tx_hashes TEXT NOT NULL DEFAULT '[]',
     amount_received TEXT,
-    deposit_details TEXT NOT NULL DEFAULT '{}'
+    deposit_details TEXT NOT NULL DEFAULT '{}',
+    leg INTEGER,
+    legs TEXT NOT NULL DEFAULT '[]'
   );
   CREATE TABLE IF NOT EXISTS vip_keys (
     id TEXT PRIMARY KEY,
@@ -205,6 +230,8 @@ function toSwap(row: Row | undefined): StoredSwap | null {
     txHashes: JSON.parse(row.tx_hashes!) as string[],
     amountReceived: row.amount_received ?? null,
     depositDetails: JSON.parse(row.deposit_details ?? "{}") as DepositDetails,
+    leg: (row.leg as unknown as number | null) ?? null,
+    legs: JSON.parse(row.legs ?? "[]") as FinishedLeg[],
   };
 }
 
@@ -230,6 +257,10 @@ export function createStore(path: string): Store {
     (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((column) => column.name === name);
   if (!hasColumn("swaps", "deposit_details")) {
     db.exec("ALTER TABLE swaps ADD COLUMN deposit_details TEXT NOT NULL DEFAULT '{}'");
+  }
+  if (!hasColumn("swaps", "leg")) {
+    db.exec("ALTER TABLE swaps ADD COLUMN leg INTEGER");
+    db.exec("ALTER TABLE swaps ADD COLUMN legs TEXT NOT NULL DEFAULT '[]'");
   }
 
 
@@ -308,8 +339,8 @@ export function createStore(path: string): Store {
 
     saveSwap(swap) {
       db.prepare(
-        `INSERT INTO swaps (id, quote_id, venue, status, prepared, venue_swap_id, tx_hashes, amount_received)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO swaps (id, quote_id, venue, status, prepared, venue_swap_id, tx_hashes, amount_received, leg)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         swap.id,
         swap.quoteId,
@@ -319,6 +350,7 @@ export function createStore(path: string): Store {
         swap.venueSwapId ?? null,
         JSON.stringify(swap.txHashes ?? []),
         swap.amountReceived ?? null,
+        swap.leg ?? null,
       );
     },
 
@@ -333,13 +365,21 @@ export function createStore(path: string): Store {
     updateSwap(id, update) {
       const current = this.getSwap(id);
       if (!current) throw new Error(`Unknown swap: ${id}`);
-      db.prepare("UPDATE swaps SET status = ?, tx_hashes = ?, amount_received = ?, deposit_details = ? WHERE id = ?").run(
+      db.prepare("UPDATE swaps SET status = ?, tx_hashes = ?, amount_received = ?, deposit_details = ?, legs = ? WHERE id = ?").run(
         update.status ?? current.status,
         JSON.stringify(update.txHashes ?? current.txHashes ?? []),
         update.amountReceived ?? current.amountReceived ?? null,
         JSON.stringify(update.depositDetails ?? current.depositDetails ?? {}),
+        JSON.stringify(update.legs ?? current.legs ?? []),
         id,
       );
+    },
+
+    startLeg(id, next) {
+      db.prepare(
+        `UPDATE swaps SET leg = ?, venue = ?, prepared = ?, venue_swap_id = ?, status = 'awaiting_deposit',
+         tx_hashes = '[]', amount_received = NULL, deposit_details = '{}' WHERE id = ?`,
+      ).run(next.leg, next.venue, JSON.stringify(next.prepared), next.venueSwapId, id);
     },
 
     saveUnlistedAsset(asset) {

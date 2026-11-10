@@ -257,7 +257,7 @@ The demo has 37 requirements marked P0; P1 items earn sponsor extra points if ti
 | FR-11 | Quoting | Quote all pairs through the SwapKit API `/v3/quote`, across its providers | P0 demo |
 | FR-12 | Quoting | Normalize every result into one route shape and rank by minimum received after fees | P0 demo |
 | FR-13 | Quoting | Asset registry mapping Crossfare asset IDs to Uniswap token addresses and SwapKit asset identifiers | P0 demo |
-| FR-14 | Quoting | Two-leg routes: Uniswap into a SwapKit-supported asset, then SwapKit across chains | P2 later |
+| FR-14 | Quoting | Two-leg routes through a hub token (native coin, USDC or USDT on the source or destination chain), with any venue on either leg, when the caller sends `multiLeg` and no direct route exists. The caller holds the hub between legs and asks for the second leg once the first lands. Built 11 November | P2 later |
 | FR-15 | Arkiv | Write each route as an Arkiv entity expiring at quote validity plus 120 seconds; write asynchronously and return the key with a pending flag until confirmed | P0 demo |
 | FR-16 | Arkiv | Index quotes by project, type, quote ID, venue, assets, payer, status and timestamps | P0 demo |
 | FR-17 | Arkiv | Agent and UI read quotes from Arkiv by entity key and by payer | P0 demo |
@@ -463,9 +463,17 @@ SwapKit response: the same `transactions` shape for EVM sources, or a deposit ad
 }
 ```
 
+**Two-leg routes (FR-14).** `POST /v1/swap` on a two-leg quote re-quotes and prepares the first leg only, and its response adds `"leg": 1, "legCount": 2`. A price move on the first leg answers 409 with a fresh two-leg route, as for any quote.
+
+### POST /v1/swaps/{id}/next
+
+Request: `{ "swapToken": "…", "amount": "0.19", "minAmountOut": "177309" }`; only `swapToken` is required. Once the first leg of a two-leg route has delivered and the swap reads `awaiting_next_leg`, this re-quotes the second leg on its venue at the hub amount received and prepares it, with the same response shape as `POST /v1/swap` and `"leg": 2`. `amount` runs it on less than arrived, for example to keep gas back when the hub is the native coin; the guarantee shrinks in proportion. When the fresh second leg's minimum falls below the route's guarantee, the answer is 409 `price_moved` with the leg's current `amountOut` and `minAmountOut`, and nothing is prepared: the caller still holds the hub and can retry with a lower `minAmountOut` of their own. Before the first leg delivers, the answer is 409 `leg_not_ready`. Asking again after the second leg is prepared returns the same transactions. It is free.
+
+The second leg must be signed by the wallet that holds the hub: the sender when the hub is on the source chain, the receiving address when it's on the destination. That wallet needs gas on that chain.
+
 ### GET /v1/swaps/{id}
 
-Returns `status` (`awaiting_deposit`, `confirming`, `exchanging`, `completed`, `refunded`, `failed`, `expired`), transaction hashes per leg and the Arkiv entity key.
+Returns `status` (`awaiting_deposit`, `confirming`, `exchanging`, `awaiting_next_leg`, `completed`, `refunded`, `failed`, `expired`), transaction hashes per leg and the Arkiv entity key. A two-leg swap also returns `leg`, `legCount` and `legs`, each with its `venue`, `provider`, `status`, `txHashes` and `amountReceived` in the hub's or final token's units. Top-level `amountReceived` is only ever the final token. A first leg that is refunded or fails ends the swap. Arkiv records the outcome once, when the swap ends.
 
 It also returns `amountReceived`, `amountSent` (what was really deposited), `depositShort` (what has arrived while it's below the minimum), `minAmount`, `refundBy`, `refundReason` and `partialRefund`.
 
@@ -474,7 +482,7 @@ It also returns `amountReceived`, `amountSent` (what was really deposited), `dep
 | Code | When |
 | --- | --- |
 | 402 | Missing, invalid or reused payment |
-| 409 | Quote expired or price moved past slippage; the body carries a fresh quote and nothing is charged |
+| 409 | Quote expired or price moved past slippage; the body carries a fresh quote and nothing is charged. On `/next`, the leg isn't ready or its price fell below the guarantee |
 | 422 | Pair or amount not supported by any venue |
 | 502 | A venue failed; the payment isn't settled, so the agent isn't charged |
 

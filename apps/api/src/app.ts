@@ -21,7 +21,9 @@ import {
   type SwapStatus,
   type Venue,
   describeSwap,
+  composeRoute,
   findTwoLegRoutes,
+  legRequest,
   withUsdValues,
   type Deposit,
   contractRef,
@@ -483,13 +485,24 @@ export function createApp(deps: AppDeps): Hono {
     };
   }
 
-  const swapBody = (swapId: string, venue: string, provider: string | undefined, prepared: PreparedSwap) => ({
+  const swapBody = (swapId: string, venue: string, provider: string | undefined, prepared: PreparedSwap, leg?: { index: number; count: number }) => ({
     swapId,
     venue,
     ...(provider ? { provider } : {}),
+    ...(leg ? { leg: leg.index + 1, legCount: leg.count } : {}),
     transactions: prepared.transactions,
     ...(prepared.deposit ? { deposit: prepared.deposit } : {}),
   });
+
+  /** A venue's fresh route for a leg: the same provider if it still answers, else the venue's best. */
+  async function requoteLeg(leg: Route, legReq: QuoteRequest): Promise<{ fresh?: Route; sameProvider: boolean }> {
+    const venue = venues.find((candidate) => candidate.name === leg.venue);
+    if (!venue) return { sameProvider: false };
+    const routes = await venue.quote(legReq);
+    const same = routes.find((route) => route.provider === leg.provider);
+    const fresh = same ?? rankRoutes(routes)[0];
+    return { ...(fresh ? { fresh } : {}), sameProvider: !!same };
+  }
 
 
   app.post("/v1/swap", async (c) => {
@@ -505,9 +518,13 @@ export function createApp(deps: AppDeps): Hono {
     const request = quote.request as QuoteRequest;
     const existing = store.getSwapByQuote(quote.id);
     if (existing) {
-      return c.json(swapBody(existing.id, existing.venue, original.provider, existing.prepared as PreparedSwap));
+      const legIndex = existing.leg ?? null;
+      const current = legIndex === null ? original : original.legs?.[legIndex];
+      const leg = legIndex === null ? undefined : { index: legIndex, count: original.legs?.length ?? 0 };
+      return c.json(swapBody(existing.id, existing.venue, current?.provider, existing.prepared as PreparedSwap, leg));
     }
-    const venue = venues.find((candidate) => candidate.name === original.venue);
+    const legs = original.legs;
+    const venue = venues.find((candidate) => candidate.name === (legs ? legs[0]!.venue : original.venue));
     if (!venue) return c.json({ error: "venue_unavailable" }, 502);
 
     const requote = async (error: string, route: Route): Promise<HandlerResult> => {
@@ -520,7 +537,45 @@ export function createApp(deps: AppDeps): Hono {
       };
     };
 
-    const handler = async (): Promise<HandlerResult> => {
+    /** A two-leg route starts with its first leg only. The caller asks for the second once it lands (FR-14). */
+    const startTwoLegs = async (first: Route, second: Route): Promise<HandlerResult> => {
+      const firstRequest = legRequest(request, original, 0);
+      const { fresh, sameProvider } = await requoteLeg(first, firstRequest);
+      if (!fresh) return { status: 502, body: { error: "route_unavailable" } };
+      const expired = now().getTime() > new Date(quote.validUntil).getTime();
+      const moved = BigInt(fresh.amountOut) < BigInt(first.minAmountOut);
+      if (!sameProvider || expired || moved) {
+        const { fresh: next } = await requoteLeg(second, legRequest(request, original, 1, fresh.amountOut));
+        if (!next) return { status: 502, body: { error: "route_unavailable" } };
+        return requote(!sameProvider ? "route_changed" : expired ? "quote_expired" : "price_moved", composeRoute(fresh, next));
+      }
+
+      const flagged = await deps.screen?.([
+        { address: request.from.address, asset: request.from.asset },
+        { address: request.to.address, asset: request.to.asset },
+      ]);
+      if (flagged) return { status: 403, body: { error: "address_flagged" } };
+
+      let prepared: PreparedSwap;
+      try {
+        prepared = capOrderWindow(await venue.prepare(fresh, firstRequest));
+      } catch (error) {
+        if (error instanceof VenueError && error.code) return { status: 422, body: { error: error.code } };
+        throw error;
+      }
+      const swapId = newId("s");
+      store.saveSwap({ id: swapId, quoteId: quote.id, venue: venue.name, status: "awaiting_deposit", prepared, venueSwapId: prepared.venueSwapId ?? null, leg: 0 });
+      // The route's guarantee stays the one the caller accepted; only the leg being run is replaced.
+      store.setQuoteRoute(quote.id, { ...original, legs: [fresh, second] });
+      if (quote.entityKey) {
+        publisher
+          .updateQuote(quote.entityKey, { status: "executing" })
+          .catch((error: unknown) => onError(`arkiv update failed for ${quote.id}`, error));
+      }
+      return { status: 200, body: swapBody(swapId, venue.name, fresh.provider, prepared, { index: 0, count: 2 }), usedBy: swapId };
+    };
+
+    const handler = legs ? () => startTwoLegs(legs[0]!, legs[1]!) : async (): Promise<HandlerResult> => {
       const routes = await venue.quote(request);
       const fresh = routes.find((route) => route.provider === original.provider);
       if (!fresh) {
@@ -569,6 +624,80 @@ export function createApp(deps: AppDeps): Hono {
       ? await runUnpaid(swapEndpoint, handler, quote.payer)
       : await charged(c, swapEndpoint, "swap", rawBody, handler);
     return respond(result);
+  });
+
+  /**
+   * Prepares the next leg of a two-leg route once the first has delivered (FR-14). It runs on what
+   * arrived, or less when the caller keeps some back for gas, and is refused while its minimum
+   * would fall below the route's guarantee, unless the caller names a lower `minAmountOut`.
+   */
+  app.post("/v1/swaps/:id/next", async (c) => {
+    const swap = store.getSwap(c.req.param("id"));
+    if (!swap) return c.json({ error: "unknown_swap" }, 404);
+    const quote = store.getQuote(swap.quoteId);
+    if (!quote) return c.json({ error: "unknown_quote" }, 404);
+    const body = parseJson(await c.req.text()) as { swapToken?: unknown; amount?: unknown; minAmountOut?: unknown } | null;
+    if (!tokenMatches(quote.swapToken, body?.swapToken)) return c.json({ error: "invalid_swap_token" }, 403);
+
+    const route = quote.route as Route;
+    const request = quote.request as QuoteRequest;
+    const legs = route.legs;
+    if (!legs || swap.leg === null || swap.leg === undefined) return c.json({ error: "not_multi_leg" }, 400);
+    const count = legs.length;
+    if (swap.leg === count - 1) {
+      return c.json(swapBody(swap.id, swap.venue, legs[swap.leg]!.provider, swap.prepared as PreparedSwap, { index: swap.leg, count }));
+    }
+    if (swap.status !== "awaiting_next_leg") return c.json({ error: "leg_not_ready", status: swap.status }, 409);
+
+    const index = swap.leg + 1;
+    const leg = legs[index]!;
+    const hubDecimals = getAsset(leg.from).decimals;
+    const delivered = swap.legs?.at(-1)?.amountReceived;
+    let received: bigint;
+    let amountIn: bigint;
+    let floor: bigint;
+    try {
+      received = delivered ? toBaseUnits(delivered, hubDecimals) : BigInt(leg.amountIn);
+      amountIn = typeof body?.amount === "string" ? toBaseUnits(body.amount, hubDecimals) : received;
+      if (body?.amount !== undefined && (typeof body.amount !== "string" || amountIn <= 0n || amountIn > received)) {
+        return c.json({ error: "amount must be positive and at most what the first leg delivered" }, 400);
+      }
+      // Keeping some back for gas lowers the guarantee in proportion.
+      floor = typeof body?.minAmountOut === "string"
+        ? toBaseUnits(body.minAmountOut, getAsset(route.to).decimals)
+        : (BigInt(route.minAmountOut) * amountIn) / received;
+    } catch {
+      return c.json({ error: "amount and minAmountOut must be decimal strings" }, 400);
+    }
+
+    const venue = venues.find((candidate) => candidate.name === leg.venue);
+    if (!venue) return c.json({ error: "venue_unavailable" }, 502);
+    const legReq = legRequest(request, route, index, amountIn.toString());
+
+    const handler = async (): Promise<HandlerResult> => {
+      const { fresh } = await requoteLeg(leg, legReq);
+      if (!fresh) return { status: 502, body: { error: "route_unavailable" } };
+      if (BigInt(fresh.minAmountOut) < floor) {
+        const decimals = getAsset(fresh.to).decimals;
+        return {
+          status: 409,
+          body: { error: "price_moved", leg: { amountOut: fromBaseUnits(fresh.amountOut, decimals), minAmountOut: fromBaseUnits(fresh.minAmountOut, decimals) } },
+        };
+      }
+      let prepared: PreparedSwap;
+      try {
+        prepared = capOrderWindow(await venue.prepare(fresh, legReq));
+      } catch (error) {
+        if (error instanceof VenueError && error.code) return { status: 422, body: { error: error.code } };
+        throw error;
+      }
+      store.startLeg(swap.id, { leg: index, venue: venue.name, prepared, venueSwapId: prepared.venueSwapId ?? null });
+      store.setQuoteRoute(quote.id, { ...route, legs: legs.map((each, at) => (at === index ? fresh : each)) });
+      lastTracked.delete(swap.id);
+      lastWatched.delete(swap.id);
+      return { status: 200, body: swapBody(swap.id, venue.name, fresh.provider, prepared, { index, count }), usedBy: swap.id };
+    };
+    return respond(await runUnpaid(swapEndpoint, handler, quote.payer));
   });
 
   app.post("/v1/swaps/:id/tx", async (c) => {
@@ -659,12 +788,31 @@ export function createApp(deps: AppDeps): Hono {
     }
 
     const due = now().getTime() - (lastTracked.get(swap.id) ?? -Infinity) >= trackIntervalMs;
-    if (!TERMINAL.includes(swap.status) && due) {
+    if (!TERMINAL.includes(swap.status) && swap.status !== "awaiting_next_leg" && due) {
       lastTracked.set(swap.id, now().getTime());
       await refreshSwap(swap.id, quote);
     }
 
     const current = store.getSwap(swap.id)!;
+    const route = (store.getQuote(swap.quoteId) ?? quote).route as Route;
+    const legIndex = current.leg ?? null;
+    const legView = legIndex === null || !route.legs ? {} : {
+      leg: legIndex + 1,
+      legCount: route.legs.length,
+      legs: [
+        ...(current.legs ?? []),
+        // The leg in progress, unless it has just finished and the next is waiting on the caller.
+        ...(current.status === "awaiting_next_leg"
+          ? []
+          : [{
+            venue: current.venue,
+            ...(route.legs[legIndex]?.provider ? { provider: route.legs[legIndex]!.provider } : {}),
+            status: current.status,
+            txHashes: current.txHashes ?? [],
+            ...(current.amountReceived ? { amountReceived: current.amountReceived } : {}),
+          }]),
+      ],
+    };
     return c.json({
       swapId: current.id,
       quoteId: current.quoteId,
@@ -678,6 +826,7 @@ export function createApp(deps: AppDeps): Hono {
       ...(deposit?.minAmount ? { minAmount: deposit.minAmount } : {}),
       ...(deposit?.refundBy ? { refundBy: deposit.refundBy } : {}),
       arkiv: { entityKey: quote.entityKey ?? null },
+      ...legView,
     });
   });
 
@@ -711,7 +860,8 @@ export function createApp(deps: AppDeps): Hono {
    * to the caller for a later payout. Only a completed swap earns it.
    */
   function recordSwapKitFee(swapId: string, quote: NonNullable<ReturnType<Store["getQuote"]>>) {
-    const route = quote.route as Route;
+    // A two-leg route charges the caller's fee on its last leg only.
+    const route = (quote.route as Route).legs?.at(-1) ?? (quote.route as Route);
     const request = quote.request as QuoteRequest;
     const affiliate = (route.venueData as { affiliateFee?: SwapKitAffiliateFee } | null)?.affiliateFee;
     if (route.venue !== SWAPKIT_VENUE || !affiliate || !request.fee) return;
@@ -736,9 +886,13 @@ export function createApp(deps: AppDeps): Hono {
 
     try {
       const prepared = swap.prepared as PreparedSwap;
+      const whole = quote.route as Route;
+      const legIndex = swap.leg ?? null;
+      const legRoute = legIndex === null ? whole : whole.legs![legIndex]!;
+      const lastLeg = legIndex === null || legIndex === whole.legs!.length - 1;
       const tracked = await venue.track({
-        route: quote.route as Route,
-        request: quote.request as QuoteRequest,
+        route: legRoute,
+        request: legIndex === null ? (quote.request as QuoteRequest) : legRequest(quote.request as QuoteRequest, whole, legIndex),
         prepared,
         txHashes: swap.txHashes ?? [],
         venueSwapId: swap.venueSwapId ?? null,
@@ -759,6 +913,19 @@ export function createApp(deps: AppDeps): Hono {
       const status: SwapStatus = reportedShort ? "awaiting_deposit" : lagging ? swap.status : lapsed ? "expired" : tracked.status;
       const amountSent = reportedShort ? earlier.amountSent : (tracked.amountSent ?? earlier.amountSent);
 
+      if (!lastLeg && status === "completed") {
+        // The hub token is in the caller's wallet. Nothing more happens until they ask for the next leg.
+        const finished = {
+          venue: swap.venue,
+          ...(legRoute.provider ? { provider: legRoute.provider } : {}),
+          status,
+          txHashes: tracked.txHashes ?? swap.txHashes ?? [],
+          ...(tracked.amountReceived ? { amountReceived: tracked.amountReceived } : {}),
+        };
+        store.updateSwap(swap.id, { status: "awaiting_next_leg", legs: [...(swap.legs ?? []), finished], txHashes: finished.txHashes });
+        return;
+      }
+
       store.updateSwap(swap.id, {
         status,
         ...(tracked.txHashes ? { txHashes: tracked.txHashes } : {}),
@@ -778,7 +945,8 @@ export function createApp(deps: AppDeps): Hono {
         await publisher
           .updateQuote(quote.entityKey, {
             status,
-            summary: outcomeSummary(quote.route as Route, status, tracked.amountReceived, amountSent),
+            // A later leg's deposit is the hub token, not what the caller first sent.
+            summary: outcomeSummary(whole, status, tracked.amountReceived, legIndex ? undefined : amountSent),
             ...(tracked.amountReceived ? { amountReceived: tracked.amountReceived } : {}),
             ...(tracked.txHashes ? { txHashes: tracked.txHashes } : {}),
           })

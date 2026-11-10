@@ -92,6 +92,36 @@ describe("swaps", () => {
   it("returns null for an unknown swap", () => {
     expect(store.getSwap("nope")).toBeNull();
   });
+
+  it("starts a two-leg swap on its first leg", () => {
+    store.saveSwap({ ...swap, leg: 0 });
+    expect(store.getSwap("s_1")).toMatchObject({ leg: 0, legs: [] });
+    expect(store.getSwap("s_1")?.leg).toBe(0);
+  });
+
+  it("records a finished leg and keeps a one-leg swap's leg unset", () => {
+    store.saveSwap(swap);
+    expect(store.getSwap("s_1")?.leg).toBeNull();
+    const done = { venue: "swapkit", status: "completed" as const, txHashes: ["0x1"], amountReceived: "0.2" };
+    store.updateSwap("s_1", { status: "awaiting_next_leg", legs: [done] });
+    expect(store.getSwap("s_1")).toMatchObject({ status: "awaiting_next_leg", legs: [done] });
+  });
+
+  it("moves to the next leg with fresh per-leg state", () => {
+    store.saveSwap({ ...swap, venue: "swapkit", leg: 0, venueSwapId: "v1" });
+    store.updateSwap("s_1", { txHashes: ["0x1"], amountReceived: "0.2", depositDetails: { amountSent: "1" } });
+    store.startLeg("s_1", { leg: 1, venue: "uniswap", prepared: { transactions: [{ kind: "swap" }] }, venueSwapId: null });
+    expect(store.getSwap("s_1")).toMatchObject({
+      leg: 1,
+      venue: "uniswap",
+      status: "awaiting_deposit",
+      prepared: { transactions: [{ kind: "swap" }] },
+      venueSwapId: null,
+      txHashes: [],
+      amountReceived: null,
+      depositDetails: {},
+    });
+  });
 });
 
 describe("SwapKit fees owed to callers", () => {

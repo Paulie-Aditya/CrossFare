@@ -60,6 +60,8 @@ export type SwapStatus =
   | "awaiting_deposit"
   | "confirming"
   | "exchanging"
+  /** A two-leg route's first leg delivered; the caller holds the hub token until it asks for the next leg. */
+  | "awaiting_next_leg"
   | "completed"
   | "refunded"
   | "failed"
