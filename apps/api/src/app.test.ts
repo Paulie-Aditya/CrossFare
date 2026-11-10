@@ -141,17 +141,21 @@ describe("GET /v1/assets", () => {
     );
   });
 
-  it("names Jupiter for tokens on Solana", async () => {
-    const { assets } = await ((await app([]).request("/v1/assets")).json() as Promise<any>);
-    expect(assets.find((asset: { id: string }) => asset.id === "sol:sol").venues).toEqual(["jupiter", "swapkit"]);
+  it("names Jupiter for tokens on Solana, only when it's switched on", async () => {
+    const venuesOf = async (venues: Venue[]) =>
+      ((await (await app(venues).request("/v1/assets")).json()) as any).assets.find((asset: { id: string }) => asset.id === "sol:sol").venues;
+    expect(await venuesOf([fakeVenue("jupiter")])).toEqual(["jupiter", "swapkit"]);
+    expect(await venuesOf([])).toEqual(["swapkit"]);
   });
 
   it("names PancakeSwap for tokens on BNB Chain", async () => {
     registerAssets(nativeAssets());
     try {
-      const { assets } = await ((await app([]).request("/v1/assets")).json() as Promise<any>);
+      const { assets } = await ((await app([fakeVenue("pancakeswap")]).request("/v1/assets")).json() as Promise<any>);
       expect(assets.find((asset: { id: string }) => asset.id === "bsc:bnb").venues).toEqual(["uniswap", "pancakeswap"]);
       expect(assets.find((asset: { id: string }) => asset.id === "eth:eth").venues).not.toContain("pancakeswap");
+      const off = await ((await app([]).request("/v1/assets")).json() as Promise<any>);
+      expect(off.assets.find((asset: { id: string }) => asset.id === "bsc:bnb").venues).toEqual(["uniswap"]);
     } finally {
       registerAssets([]);
     }

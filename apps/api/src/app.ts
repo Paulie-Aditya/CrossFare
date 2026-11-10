@@ -172,7 +172,8 @@ function parseQuoteRequest(input: unknown): { request: QuoteRequest } | { status
   };
 }
 
-function publicAsset(asset: Asset) {
+/** Direct venues an asset can trade on, named only when the server runs them. */
+function publicAsset(asset: Asset, running: ReadonlySet<string> = new Set()) {
   return {
     id: asset.id,
     chain: asset.chain,
@@ -183,8 +184,8 @@ function publicAsset(asset: Asset) {
     ...(asset.logo ? { logo: asset.logo } : {}),
     venues: [
       ...(asset.uniswap ? [UNISWAP_VENUE] : []),
-      ...(asset.uniswap && PANCAKESWAP_CHAINS.includes(asset.uniswap.chainId) ? ["pancakeswap"] : []),
-      ...(solanaMint(asset) ? ["jupiter"] : []),
+      ...(running.has("pancakeswap") && asset.uniswap && PANCAKESWAP_CHAINS.includes(asset.uniswap.chainId) ? ["pancakeswap"] : []),
+      ...(running.has("jupiter") && solanaMint(asset) ? ["jupiter"] : []),
       ...(asset.swapkit ? [SWAPKIT_VENUE] : []),
     ],
   };
@@ -264,6 +265,7 @@ function tokenMatches(expected: string | null | undefined, given: unknown): bool
 
 export function createApp(deps: AppDeps): Hono {
   const { venues, store, publisher } = deps;
+  const running = new Set(venues.map((venue) => venue.name));
   const now = deps.now ?? (() => new Date());
   const newId = deps.newId ?? ((prefix: string) => `${prefix}_${randomUUID().replaceAll("-", "").slice(0, 16)}`);
   const publishTimeoutMs = deps.publishTimeoutMs ?? 8_000;
@@ -389,7 +391,7 @@ export function createApp(deps: AppDeps): Hono {
   // Thousands of tokens, so it's compressed and cacheable.
   app.get("/v1/assets", compress(), (c) => {
     c.header("cache-control", "public, max-age=3600");
-    return c.json({ chains: listChains(), assets: listAssets().map(publicAsset) });
+    return c.json({ chains: listChains(), assets: listAssets().map((asset) => publicAsset(asset, running)) });
   });
 
   const findToken = (chainId: number, address: string) =>
@@ -403,7 +405,7 @@ export function createApp(deps: AppDeps): Hono {
     const chains = chain ? [evmChainByCode(chain)].filter((entry) => entry !== undefined) : UNISWAP_CHAINS;
     if (chains.length === 0) return c.json({ error: `Uniswap doesn't trade on ${chain}` }, 400);
     const found = await Promise.all(chains.map((entry) => findToken(entry.chainId, address)));
-    return c.json({ tokens: found.flatMap((asset) => (asset ? [{ ...publicAsset(asset), verified: !asset.unlisted }] : [])) });
+    return c.json({ tokens: found.flatMap((asset) => (asset ? [{ ...publicAsset(asset, running), verified: !asset.unlisted }] : [])) });
   });
 
   /** Turns `chain:0x…` into the token's ID, reading an unlisted token from the chain. Other IDs pass through. */
