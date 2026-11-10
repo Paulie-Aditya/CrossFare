@@ -1,6 +1,6 @@
 # Crossfare
 
-An open-source cross-chain swap API that AI agents pay for per call. An agent pays for its quotes with x402 on Hedera, checks them on Arkiv, and executes through Uniswap for same-chain swaps, and NEAR Intents, THORChain or the SwapKit API across chains. It needs no signup or API key, and Crossfare never holds the swapped funds.
+An open-source cross-chain swap API that AI agents pay for per call. An agent pays for its quotes with x402 on Hedera, checks them on Arkiv, and executes through Uniswap or PancakeSwap for same-chain swaps, and NEAR Intents, THORChain or the SwapKit API across chains. It needs no signup or API key, and Crossfare never holds the swapped funds.
 
 For example: you tell your agent to swap 5 USDC on Ethereum to ETH on Base. It asks for the receiving address, pays 0.01 testnet USDC on Hedera for a quote, publishes it on Arkiv, and sends the deposit that SwapKit routes.
 

@@ -17,6 +17,8 @@ export interface Config {
   nearIntents: { apiKey?: string } | null;
   /** Swaps through a THORNode directly. Null leaves THORChain routes to SwapKit. */
   thorchain: { thornodeUrl?: string } | null;
+  /** PancakeSwap on BNB Chain, quoted over the chain's RPC. */
+  pancakeswap: boolean;
   /** RPC endpoints by EVM chain ID. A chain without one uses its public RPCs. */
   rpcUrls: Record<number, string>;
   port: number;
@@ -62,7 +64,7 @@ const RETIRED = [
   "UNISWAP_FEE_BPS",
 ] as const;
 
-function directVenues(env: Record<string, string | undefined>): Pick<Config, "nearIntents" | "thorchain"> {
+function directVenues(env: Record<string, string | undefined>): Pick<Config, "nearIntents" | "thorchain" | "pancakeswap"> {
   const retired = RETIRED.filter((name) => env[name]);
   if (retired.length) {
     throw new Error(`Remove ${retired.join(", ")}: callers set their own fee now. Turn direct venues on with NEAR_INTENTS_DIRECT or THORCHAIN_DIRECT.`);
@@ -70,6 +72,7 @@ function directVenues(env: Record<string, string | undefined>): Pick<Config, "ne
   return {
     nearIntents: env.NEAR_INTENTS_DIRECT === "true" ? (env.NEAR_INTENTS_API_KEY ? { apiKey: env.NEAR_INTENTS_API_KEY } : {}) : null,
     thorchain: env.THORCHAIN_DIRECT === "true" ? (env.THORNODE_URL ? { thornodeUrl: env.THORNODE_URL } : {}) : null,
+    pancakeswap: env.PANCAKESWAP_DIRECT === "true",
   };
 }
 

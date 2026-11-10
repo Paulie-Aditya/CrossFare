@@ -30,6 +30,7 @@ import {
   evmChainByCode,
   findAssetByContract,
   UNISWAP_CHAINS,
+  PANCAKESWAP_CHAINS,
   type Asset,
 } from "@crossfare/core";
 import type { TokenLookup } from "./token-lookup.ts";
@@ -177,7 +178,11 @@ function publicAsset(asset: Asset) {
     decimals: asset.decimals,
     evm: asset.evmChainId !== undefined,
     ...(asset.logo ? { logo: asset.logo } : {}),
-    venues: [...(asset.uniswap ? [UNISWAP_VENUE] : []), ...(asset.swapkit ? [SWAPKIT_VENUE] : [])],
+    venues: [
+      ...(asset.uniswap ? [UNISWAP_VENUE] : []),
+      ...(asset.uniswap && PANCAKESWAP_CHAINS.includes(asset.uniswap.chainId) ? ["pancakeswap"] : []),
+      ...(asset.swapkit ? [SWAPKIT_VENUE] : []),
+    ],
   };
 }
 

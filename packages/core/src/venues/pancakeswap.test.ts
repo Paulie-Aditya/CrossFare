@@ -45,6 +45,10 @@ const venue = (options: Partial<Parameters<typeof createPancakeSwapVenue>[0]> = 
   createPancakeSwapVenue({ router: fakeRouter(), now: () => NOW, ...options });
 
 describe("PancakeSwap venue", () => {
+  it("replaces SwapKit's route through PancakeSwap when it answers, since only it pays the caller's own wallet", () => {
+    expect(venue().replaces).toEqual(["pancakeswap"]);
+  });
+
   it("serves two tokens on BNB Chain only", () => {
     const pancake = venue();
     expect(pancake.serves?.(getAsset("bsc:bnb"), getAsset("bsc:usdt"))).toBe(true);

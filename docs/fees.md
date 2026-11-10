@@ -29,6 +29,7 @@ Add `fee` to the `POST /v1/quote` body:
 | Uniswap | `evm` | Taken from the output inside the swap, on that chain and in the token bought | The whole fee. Up to 500 bps |
 | NEAR Intents, direct | `near`, or `evm` when `near` is absent | Credited to that account's balance inside NEAR Intents; withdraw it at near-intents.org | 1Click passes on half: 100 bps pays you 50, and the customer pays 100. Its own share is at least 20 bps, charged even with no fee |
 | THORChain, direct | `thorchain`, a registered THORName | Paid by THORChain to the name's address, or its preferred asset | The whole fee. From Litecoin, Bitcoin and other UTXO chains, the name must be short for the memo to fit in 80 bytes |
+| PancakeSwap, direct | `evm` | Taken from the output inside the swap on BNB Chain, in the token bought (the router's PAY_PORTION), then the rest goes to the receiving address | The whole fee. Up to 500 bps. Built 11 November; checked with live quotes, no real swap yet |
 | SwapKit | None needed | SwapKit pays the operator's wallets set in its dashboard. Crossfare records what you earned, and pays it out separately | SwapKit only charges a provider that has a wallet in the dashboard. It also takes its own service fee, 0.15% on the routes checked |
 
 The direct venues run only where the operator turns them on. Otherwise those providers come through SwapKit.

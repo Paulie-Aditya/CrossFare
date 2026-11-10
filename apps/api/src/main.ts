@@ -9,6 +9,7 @@ import {
   fallback,
   hexToString,
   http,
+  parseAbi,
   type Address,
   type Hash,
   type PublicClient,
@@ -20,6 +21,9 @@ import {
   createNearIntentsVenue,
   createSwapKitScreen,
   createSwapKitVenue,
+  createPancakeSwapVenue,
+  PANCAKE_PERMIT2,
+  PANCAKESWAP_CHAINS,
   createThorchainVenue,
   createUniswapVenue,
   fetchSwapKitCatalog,
@@ -32,6 +36,7 @@ import {
   type Asset,
   type GetReceipt,
 } from "@crossfare/core";
+import { createPancakeRouter } from "@crossfare/core/pancakeswap-router";
 import { createApp } from "./app.ts";
 import { createDepositWatcher } from "./deposit-watcher.ts";
 import { connectArkiv, createArkivPublisher } from "./arkiv-publisher.ts";
@@ -88,6 +93,30 @@ const readers = new Map<number, PublicClient>(
   }),
 );
 
+/** PancakeSwap reads many pools per quote, so its readers batch calls through multicall. */
+const pancakeReaders = new Map<number, PublicClient>(
+  PANCAKESWAP_CHAINS.flatMap((chainId) => {
+    const chain = UNISWAP_CHAINS.find((entry) => entry.chainId === chainId);
+    if (!chain) return [];
+    const urls = config.rpcUrls[chainId] ? [config.rpcUrls[chainId]!] : [];
+    const transport = fallback([...urls.map((url) => http(url)), http()]);
+    return [[chainId, createPublicClient({ chain: chain.viem, transport, batch: { multicall: { batchSize: 200_000 } } }) as PublicClient]];
+  }),
+);
+
+const PERMIT2_ALLOWANCE_ABI = parseAbi(["function allowance(address owner, address token, address spender) view returns (uint160 amount, uint48 expiration, uint48 nonce)"]);
+
+/** What a wallet lets Permit2 move, and what Permit2 lets the router move. */
+async function readPermit2Allowances(chainId: number, token: string, owner: string, spender: string) {
+  const reader = readers.get(chainId);
+  if (!reader) throw new Error(`No chain reader for ${chainId}`);
+  const [tokenAllowance, [amount, expiration]] = await Promise.all([
+    reader.readContract({ address: token as Address, abi: erc20Abi, functionName: "allowance", args: [owner as Address, PANCAKE_PERMIT2] }),
+    reader.readContract({ address: PANCAKE_PERMIT2, abi: PERMIT2_ALLOWANCE_ABI, functionName: "allowance", args: [owner as Address, token as Address, spender as Address] }),
+  ]);
+  return { token: tokenAllowance, router: { amount, expiration: Number(expiration) } };
+}
+
 const balancesOn = (reader: PublicClient) => ({
   tokenBalance: (token: string, holder: string) =>
     reader.readContract({ address: token as Address, abi: erc20Abi, functionName: "balanceOf", args: [holder as Address] }),
@@ -142,6 +171,13 @@ const app = createApp({
     // Reached directly, these keep the whole affiliate fee. SwapKit stays the fallback for both.
     ...(config.nearIntents ? [createNearIntentsVenue(config.nearIntents)] : []),
     ...(config.thorchain ? [createThorchainVenue(config.thorchain)] : []),
+    ...(config.pancakeswap
+      ? [createPancakeSwapVenue({
+          router: createPancakeRouter({ clientFor: (chainId) => pancakeReaders.get(chainId) }),
+          getReceipt,
+          readAllowances: readPermit2Allowances,
+        })]
+      : []),
     createSwapKitVenue({ apiKey: config.swapkitApiKey }),
   ],
   store,

@@ -140,6 +140,17 @@ describe("GET /v1/assets", () => {
       ]),
     );
   });
+
+  it("names PancakeSwap for tokens on BNB Chain", async () => {
+    registerAssets(nativeAssets());
+    try {
+      const { assets } = await ((await app([]).request("/v1/assets")).json() as Promise<any>);
+      expect(assets.find((asset: { id: string }) => asset.id === "bsc:bnb").venues).toEqual(["uniswap", "pancakeswap"]);
+      expect(assets.find((asset: { id: string }) => asset.id === "eth:eth").venues).not.toContain("pancakeswap");
+    } finally {
+      registerAssets([]);
+    }
+  });
 });
 
 describe("POST /v1/quote", () => {

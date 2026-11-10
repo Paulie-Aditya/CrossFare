@@ -76,7 +76,11 @@ describe("loadConfig", () => {
 
 describe("direct venues", () => {
   it("stay off unless turned on, so SwapKit keeps every provider", () => {
-    expect(loadConfig(env)).toMatchObject({ nearIntents: null, thorchain: null });
+    expect(loadConfig(env)).toMatchObject({ nearIntents: null, thorchain: null, pancakeswap: false });
+  });
+
+  it("turn on PancakeSwap, which needs no key", () => {
+    expect(loadConfig({ ...env, PANCAKESWAP_DIRECT: "true" }).pancakeswap).toBe(true);
   });
 
   it("turn on NEAR Intents, with a partner key when there is one", () => {

@@ -89,6 +89,7 @@ export function createPancakeSwapVenue(options: PancakeSwapOptions): Venue {
 
   return {
     name: VENUE,
+    replaces: ["pancakeswap"],
 
     serves(from, to) {
       const tokenIn = tokenOf(from);
