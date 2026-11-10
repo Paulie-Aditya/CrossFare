@@ -9,6 +9,8 @@ export interface QuotedRoute {
   quoteId: string;
   venue: string;
   provider?: string;
+  /** Set on a two-leg route: the first leg's `to` is the hub token held between legs. */
+  legs?: { venue: string; provider?: string; from: string; to: string; amountOut: string }[];
   amountOut: string;
   minAmountOut: string;
   validUntil: string;
@@ -37,14 +39,18 @@ export interface SwapStatusResponse {
   status: string;
   amountReceived?: string | null;
   txHashes?: string[];
+  /** A two-leg swap's legs so far, each with what it delivered. */
+  legs?: { venue: string; status: string; amountReceived?: string }[];
 }
 
 export interface AgentDeps {
   discover(): Promise<Discovery>;
-  requestQuote(goal: Goal): Promise<ApiResponse>;
+  requestQuote(request: Goal & { multiLeg?: boolean }): Promise<ApiResponse>;
   readQuote(entityKey: string): Promise<{ owner: string; payload: any }>;
   listQuotes(): Promise<{ quoteId: string; entityKey: string }[]>;
   requestSwap(quoteId: string, swapToken: string): Promise<ApiResponse>;
+  /** Prepares the second leg of a two-leg route once the first has delivered. */
+  requestNextLeg(swapId: string, swapToken: string): Promise<ApiResponse>;
   sendTransaction(transaction: AgentTransaction): Promise<string>;
   submitHash(swapId: string, hash: string): Promise<void>;
   getStatus(swapId: string): Promise<SwapStatusResponse>;
@@ -131,7 +137,8 @@ export async function runAgent(deps: AgentDeps, goal: Goal): Promise<AgentResult
 
   let quoted: ApiResponse;
   try {
-    quoted = await deps.requestQuote(goal);
+    // Crossfare offers a two-leg route only when nothing direct exists, and this agent can sign both legs.
+    quoted = await deps.requestQuote({ ...goal, multiLeg: true });
   } catch (error) {
     return stop(deps, (error as Error).message);
   }
@@ -181,19 +188,45 @@ export async function runAgent(deps: AgentDeps, goal: Goal): Promise<AgentResult
   const { swapId } = swap.body as { swapId: string };
   if (swap.body.payment) deps.log(`Paid for execution: ${hashscan(swap.body.payment.transactionId)}`);
 
-  const transactions = (swap.body.transactions ?? []) as AgentTransaction[];
-  if (transactions.length === 0) {
-    return { ...stop(deps, "route needs a deposit from a non-EVM wallet, which this agent lacks"), swapId };
+  /** Signs and sends one leg's transactions in order. Returns why it couldn't, if it couldn't. */
+  async function send(body: { transactions?: AgentTransaction[]; leg?: number; legCount?: number }): Promise<string | null> {
+    const transactions = body.transactions ?? [];
+    if (transactions.length === 0) return "route needs a deposit from a non-EVM wallet, which this agent lacks";
+    if (body.leg) deps.log(`Leg ${body.leg} of ${body.legCount}:`);
+    for (const transaction of transactions) {
+      const hash = await deps.sendTransaction(transaction);
+      deps.log(`Sent ${transaction.kind} transaction: ${hash}`);
+      if (transaction.kind === "swap") await deps.submitHash(swapId, hash);
+    }
+    return null;
   }
-  for (const transaction of transactions) {
-    const hash = await deps.sendTransaction(transaction);
-    deps.log(`Sent ${transaction.kind} transaction: ${hash}`);
-    if (transaction.kind === "swap") await deps.submitHash(swapId, hash);
-  }
+
+  const unsent = await send(swap.body);
+  if (unsent) return { ...stop(deps, unsent), swapId };
 
   for (let poll = 0; poll < deps.maxPolls; poll++) {
     const status = await deps.getStatus(swapId);
     deps.log(`Status: ${status.status}`);
+    if (status.status === "awaiting_next_leg") {
+      // The hub token is in this wallet now. If the second leg can't run, it stays there, safe.
+      const held = `${status.legs?.at(-1)?.amountReceived ?? "the"} ${chosen.legs?.[0]?.to ?? "hub token"}`;
+      const holding = (why: string) => ({ ...stop(deps, `${why}; holding ${held} in this wallet`), swapId });
+      let next: ApiResponse;
+      try {
+        next = await deps.requestNextLeg(swapId, quoted.body.swapToken);
+      } catch (error) {
+        return holding((error as Error).message);
+      }
+      if (next.status !== 200) return holding(`second leg refused: ${JSON.stringify(next.body)}`);
+      try {
+        const reason = await send(next.body);
+        if (reason) return holding(reason);
+      } catch (error) {
+        return holding(`second leg failed to send: ${(error as Error).message}`);
+      }
+      await deps.sleep(deps.pollIntervalMs);
+      continue;
+    }
     const finished = FINISHED.find((state) => state === status.status);
     if (finished) {
       if (status.amountReceived) deps.log(`Received ${status.amountReceived} ${goal.to.asset}`);

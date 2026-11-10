@@ -238,3 +238,49 @@ describe("reference agent", () => {
     expect(deps.getStatus).toHaveBeenCalledTimes(3);
   });
 });
+
+describe("two-leg routes", () => {
+  const leg2 = { kind: "swap", chainId: 1, to: "0xuniswap", data: "0xleg2", value: "0x2c2ad68fd9000000" };
+
+  beforeEach(() => {
+    deps.requestSwap.mockResolvedValue({
+      status: 200,
+      body: { swapId: "s_1", venue: "swapkit", leg: 1, legCount: 2, transactions: [tx] },
+    });
+    deps.getStatus
+      .mockResolvedValueOnce({ status: "awaiting_next_leg", legs: [{ venue: "swapkit", status: "completed", amountReceived: "0.199" }] })
+      .mockResolvedValue({ status: "completed", amountReceived: "198000" });
+    (deps as any).requestNextLeg = vi.fn(async () => ({
+      status: 200,
+      body: { swapId: "s_1", venue: "uniswap", leg: 2, legCount: 2, transactions: [leg2] },
+    }));
+  });
+
+  it("asks for two-leg routes, which Crossfare offers only when nothing direct exists", async () => {
+    await run();
+    expect(deps.requestQuote).toHaveBeenCalledWith(expect.objectContaining({ multiLeg: true }));
+  });
+
+  it("runs the second leg once the first has delivered", async () => {
+    const result = await run();
+    expect(result).toMatchObject({ outcome: "completed", swapId: "s_1", amountReceived: "198000" });
+    expect((deps as any).requestNextLeg).toHaveBeenCalledWith("s_1", "tok");
+    expect(deps.sendTransaction.mock.calls.map((call: unknown[]) => call[0])).toEqual([tx, leg2]);
+    expect(deps.submitHash).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops holding the hub token when the second leg's price fell below the guarantee", async () => {
+    (deps as any).requestNextLeg.mockResolvedValue({ status: 409, body: { error: "price_moved", leg: { amountOut: "1", minAmountOut: "1" } } });
+    const result = await run();
+    expect(result).toMatchObject({ outcome: "stopped", swapId: "s_1" });
+    expect(result.reason).toContain("0.199");
+    expect(deps.sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops holding the hub token when the second leg can't be sent", async () => {
+    deps.sendTransaction.mockResolvedValueOnce("0xhash").mockRejectedValueOnce(new Error("insufficient funds for gas"));
+    const result = await run();
+    expect(result).toMatchObject({ outcome: "stopped", swapId: "s_1" });
+    expect(result.reason).toContain("insufficient funds");
+  });
+});

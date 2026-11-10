@@ -94,6 +94,14 @@ const result = await runAgent(
     },
     listQuotes: async () => (await getJson(`/v1/quotes?payer=${config.hederaAccount}`)).quotes,
     requestSwap: (quoteId, swapToken) => postPaid("/v1/swap", { quoteId, swapToken }),
+    async requestNextLeg(swapId, swapToken) {
+      const response = await fetch(`${config.apiUrl}/v1/swaps/${swapId}/next`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ swapToken }),
+      });
+      return { status: response.status, body: await response.json() };
+    },
     sendTransaction,
     async submitHash(swapId, hash) {
       await fetch(`${config.apiUrl}/v1/swaps/${swapId}/tx`, {
