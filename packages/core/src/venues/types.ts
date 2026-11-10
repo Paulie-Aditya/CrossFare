@@ -18,12 +18,13 @@ export interface QuoteRequest {
 /**
  * A fee the caller charges on its swap. Each venue pays it to the recipient it can reach:
  * Uniswap to `evm` on the output chain, NEAR Intents to `near` (or `evm`, which is also an
- * Intents account), THORChain to the `thorchain` THORName. A venue with no matching recipient
- * charges nothing. SwapKit pays the operator's dashboard wallets, so its fee is owed to the caller.
+ * Intents account), THORChain to the `thorchain` THORName, PancakeSwap to `evm`, Jupiter to the
+ * `solana` wallet's token account. A venue with no matching recipient charges nothing. SwapKit pays
+ * the operator's dashboard wallets, so its fee is owed to the caller.
  */
 export interface CallerFee {
   bps: number;
-  recipients: { evm?: string; near?: string; thorchain?: string };
+  recipients: { evm?: string; near?: string; thorchain?: string; solana?: string };
 }
 
 export interface UnsignedTransaction {
@@ -50,10 +51,19 @@ export interface Deposit {
   refundBy?: string;
 }
 
+/** A Solana transaction for the caller's wallet to sign and send. It lapses with its blockhash, in about a minute. */
+export interface SolanaTransaction {
+  /** Unsigned, base64 in Solana's wire format. */
+  transaction: string;
+  lastValidBlockHeight: number;
+}
+
 export interface PreparedSwap {
   venueSwapId?: string;
+  /** EVM transactions, in order. */
   transactions: UnsignedTransaction[];
   deposit?: Deposit;
+  solana?: SolanaTransaction;
 }
 
 export type SwapStatus =
