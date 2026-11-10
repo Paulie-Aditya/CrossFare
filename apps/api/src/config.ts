@@ -19,6 +19,8 @@ export interface Config {
   thorchain: { thornodeUrl?: string } | null;
   /** PancakeSwap on BNB Chain, quoted over the chain's RPC. */
   pancakeswap: boolean;
+  /** Jupiter on Solana. Keyless works, at about one request every two seconds. */
+  jupiter: { apiKey?: string; solanaRpcUrl?: string } | null;
   /** RPC endpoints by EVM chain ID. A chain without one uses its public RPCs. */
   rpcUrls: Record<number, string>;
   port: number;
@@ -64,7 +66,7 @@ const RETIRED = [
   "UNISWAP_FEE_BPS",
 ] as const;
 
-function directVenues(env: Record<string, string | undefined>): Pick<Config, "nearIntents" | "thorchain" | "pancakeswap"> {
+function directVenues(env: Record<string, string | undefined>): Pick<Config, "nearIntents" | "thorchain" | "pancakeswap" | "jupiter"> {
   const retired = RETIRED.filter((name) => env[name]);
   if (retired.length) {
     throw new Error(`Remove ${retired.join(", ")}: callers set their own fee now. Turn direct venues on with NEAR_INTENTS_DIRECT or THORCHAIN_DIRECT.`);
@@ -73,6 +75,12 @@ function directVenues(env: Record<string, string | undefined>): Pick<Config, "ne
     nearIntents: env.NEAR_INTENTS_DIRECT === "true" ? (env.NEAR_INTENTS_API_KEY ? { apiKey: env.NEAR_INTENTS_API_KEY } : {}) : null,
     thorchain: env.THORCHAIN_DIRECT === "true" ? (env.THORNODE_URL ? { thornodeUrl: env.THORNODE_URL } : {}) : null,
     pancakeswap: env.PANCAKESWAP_DIRECT === "true",
+    jupiter: env.JUPITER_DIRECT === "true"
+      ? {
+          ...(env.JUPITER_API_KEY ? { apiKey: env.JUPITER_API_KEY } : {}),
+          ...(env.SOLANA_RPC_URL ? { solanaRpcUrl: env.SOLANA_RPC_URL } : {}),
+        }
+      : null,
   };
 }
 

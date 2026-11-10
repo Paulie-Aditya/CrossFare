@@ -76,7 +76,15 @@ describe("loadConfig", () => {
 
 describe("direct venues", () => {
   it("stay off unless turned on, so SwapKit keeps every provider", () => {
-    expect(loadConfig(env)).toMatchObject({ nearIntents: null, thorchain: null, pancakeswap: false });
+    expect(loadConfig(env)).toMatchObject({ nearIntents: null, thorchain: null, pancakeswap: false, jupiter: null });
+  });
+
+  it("turn on Jupiter, keyless or with a key, on a chosen Solana RPC", () => {
+    expect(loadConfig({ ...env, JUPITER_DIRECT: "true" }).jupiter).toEqual({});
+    expect(loadConfig({ ...env, JUPITER_DIRECT: "true", JUPITER_API_KEY: "k", SOLANA_RPC_URL: "https://rpc.example" }).jupiter).toEqual({
+      apiKey: "k",
+      solanaRpcUrl: "https://rpc.example",
+    });
   });
 
   it("turn on PancakeSwap, which needs no key", () => {

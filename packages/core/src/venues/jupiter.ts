@@ -59,7 +59,7 @@ interface JupiterVenueData {
 }
 
 /** A token's mint: SwapKit's identifier carries it, case intact. SOL is traded as its wrapped mint. */
-function mintOf(asset: Asset): string | null {
+export function solanaMint(asset: Asset): string | null {
   if (asset.chain !== "sol" || !asset.swapkit?.startsWith("SOL.")) return null;
   const dash = asset.swapkit.indexOf("-");
   return dash < 0 ? (asset.swapkit === "SOL.SOL" ? WSOL_MINT : null) : asset.swapkit.slice(dash + 1);
@@ -83,14 +83,14 @@ export function createJupiterVenue(options: JupiterOptions = {}): Venue {
   return {
     name: VENUE,
 
-    serves: (from, to) => mintOf(from) !== null && mintOf(to) !== null,
+    serves: (from, to) => solanaMint(from) !== null && solanaMint(to) !== null,
 
     async quote(request: QuoteRequest): Promise<Route[]> {
       if (request.mode !== "exact_in") return [];
       const from = getAsset(request.from.asset);
       const to = getAsset(request.to.asset);
-      const inputMint = mintOf(from);
-      const outputMint = mintOf(to);
+      const inputMint = solanaMint(from);
+      const outputMint = solanaMint(to);
       if (!inputMint || !outputMint) return [];
       // The swap pays the wallet that signs it; /build can't send the output anywhere else.
       if (!request.indicative && request.to.address !== request.from.address) return [];

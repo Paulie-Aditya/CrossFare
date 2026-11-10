@@ -189,8 +189,9 @@ export async function runAgent(deps: AgentDeps, goal: Goal): Promise<AgentResult
   if (swap.body.payment) deps.log(`Paid for execution: ${hashscan(swap.body.payment.transactionId)}`);
 
   /** Signs and sends one leg's transactions in order. Returns why it couldn't, if it couldn't. */
-  async function send(body: { transactions?: AgentTransaction[]; leg?: number; legCount?: number }): Promise<string | null> {
+  async function send(body: { transactions?: AgentTransaction[]; solana?: unknown; leg?: number; legCount?: number }): Promise<string | null> {
     const transactions = body.transactions ?? [];
+    if (body.solana) return "route needs a Solana signature, which this agent can't make";
     if (transactions.length === 0) return "route needs a deposit from a non-EVM wallet, which this agent lacks";
     if (body.leg) deps.log(`Leg ${body.leg} of ${body.legCount}:`);
     for (const transaction of transactions) {

@@ -291,6 +291,7 @@ The demo has 37 requirements marked P0; P1 items earn sponsor extra points if ti
 | FR-53 | Routing | Quote NEAR Intents directly through its 1Click API with an app fee, when a fee recipient is configured. A live quote, and so a deposit address, is made only when a swap is requested. 1Click keeps half of the app fee and at least 20 bps, so a full fee needs a partner agreement. Built 9 November | P2 later |
 | FR-54 | Routing | Quote THORChain directly through a THORNode with an affiliate THORName, when one is configured. Deposits from UTXO chains carry the memo, so they need a wallet that can attach one; EVM sources get an approval and a router call to sign. Built 9 November | P2 later |
 | FR-55 | Routing | SwapKit stays the fallback: its route through NEAR Intents or THORChain is dropped only when the direct venue returned a route for the same request. Built 9 November | P2 later |
+| FR-58 | Routing | Quote Jupiter directly on Solana, with `JUPITER_DIRECT` and an optional `JUPITER_API_KEY`, through its Router API (`/build`). Crossfare assembles the instructions into an unsigned transaction; `POST /v1/swap` returns it as `solana` for the caller's wallet to sign and send within about a minute, then report the signature to `/v1/swaps/{id}/tx`. The caller's fee goes to `fee.recipients.solana`'s token account for the output, or else the input, only when it exists. The swap pays the signing wallet, so a different receiving address gets no Jupiter route. The reference agent has no Solana wallet and stops on these routes. Built 11 November | P2 later |
 | FR-57 | Routing | Quote PancakeSwap directly on BNB Chain, with `PANCAKESWAP_DIRECT`. Pools are read and quoted over the chain's RPC with PancakeSwap's Smart Router SDK, so no key is needed, and the Universal Router call is built by Crossfare: the caller's fee goes to their `evm` wallet by PAY_PORTION in the same transaction. A token input is approved to PancakeSwap's Permit2, then to the router through it. PancakeSwap's hosted aggregator isn't used: it skips BNB Chain and pays fees to one wallet. Replaces SwapKit's route through PancakeSwap when it answers. Built 11 November | P2 later |
 
 ## Architecture
@@ -454,6 +455,8 @@ Uniswap response: unsigned transactions for the caller to sign, in order.
 ```
 
 SwapKit response: the same `transactions` shape for EVM sources, or a deposit address and memo when the source is a chain like Bitcoin.
+
+Jupiter response: no EVM `transactions`, and `"solana": { "transaction": "<base64 unsigned v0 transaction>", "lastValidBlockHeight": 445860101 }` for the wallet to sign and send before that block height (FR-58).
 
 ```json
 {

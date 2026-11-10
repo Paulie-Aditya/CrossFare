@@ -218,6 +218,17 @@ describe("reference agent", () => {
     expect(deps.sendTransaction).not.toHaveBeenCalled();
   });
 
+  it("won't sign a Solana transaction, which it has no wallet for", async () => {
+    deps.requestSwap.mockResolvedValue({
+      status: 200,
+      body: { swapId: "s_1", venue: "jupiter", transactions: [], solana: { transaction: "AQAB", lastValidBlockHeight: 1 } },
+    });
+    const result = await run();
+    expect(result).toMatchObject({ outcome: "stopped", swapId: "s_1" });
+    expect(result.reason).toContain("Solana");
+    expect(deps.sendTransaction).not.toHaveBeenCalled();
+  });
+
   it("polls until the swap finishes", async () => {
     deps.getStatus
       .mockResolvedValueOnce({ status: "confirming" })

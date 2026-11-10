@@ -22,6 +22,7 @@ import {
   createSwapKitScreen,
   createSwapKitVenue,
   createPancakeSwapVenue,
+  createJupiterVenue,
   PANCAKE_PERMIT2,
   PANCAKESWAP_CHAINS,
   createThorchainVenue,
@@ -37,6 +38,7 @@ import {
   type GetReceipt,
 } from "@crossfare/core";
 import { createPancakeRouter } from "@crossfare/core/pancakeswap-router";
+import { assembleJupiterTransaction, createSolanaReader } from "@crossfare/core/solana";
 import { createApp } from "./app.ts";
 import { createDepositWatcher } from "./deposit-watcher.ts";
 import { connectArkiv, createArkivPublisher } from "./arkiv-publisher.ts";
@@ -176,6 +178,13 @@ const app = createApp({
           router: createPancakeRouter({ clientFor: (chainId) => pancakeReaders.get(chainId) }),
           getReceipt,
           readAllowances: readPermit2Allowances,
+        })]
+      : []),
+    ...(config.jupiter
+      ? [createJupiterVenue({
+          ...(config.jupiter.apiKey ? { apiKey: config.jupiter.apiKey } : {}),
+          solana: createSolanaReader(config.jupiter.solanaRpcUrl ? { rpcUrl: config.jupiter.solanaRpcUrl } : {}),
+          assemble: assembleJupiterTransaction,
         })]
       : []),
     createSwapKitVenue({ apiKey: config.swapkitApiKey }),

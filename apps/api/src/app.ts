@@ -31,6 +31,7 @@ import {
   findAssetByContract,
   UNISWAP_CHAINS,
   PANCAKESWAP_CHAINS,
+  solanaMint,
   type Asset,
 } from "@crossfare/core";
 import type { TokenLookup } from "./token-lookup.ts";
@@ -107,6 +108,8 @@ const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const NEAR_ACCOUNT = /^(?=.{2,64}$)(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$|^0x[0-9a-fA-F]{40}$/;
 /** THORChain's rule for names; a short one keeps the memo under 80 bytes on UTXO chains. */
 const THORNAME = /^[a-zA-Z0-9+_.-]{1,30}$/;
+/** A base58 public key. */
+const SOLANA_WALLET = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 /** The caller's own fee. Each recipient is where one kind of venue pays it. */
 function parseFee(input: unknown): { fee?: CallerFee } | { error: string } {
@@ -117,14 +120,14 @@ function parseFee(input: unknown): { fee?: CallerFee } | { error: string } {
   }
   const given = fee.recipients ?? {};
   const recipients: CallerFee["recipients"] = {};
-  const checks = { evm: EVM_ADDRESS, near: NEAR_ACCOUNT, thorchain: THORNAME } as const;
+  const checks = { evm: EVM_ADDRESS, near: NEAR_ACCOUNT, thorchain: THORNAME, solana: SOLANA_WALLET } as const;
   for (const [kind, pattern] of Object.entries(checks) as [keyof typeof checks, RegExp][]) {
     const value = given[kind];
     if (value === undefined) continue;
     if (typeof value !== "string" || !pattern.test(value)) return { error: `fee.recipients.${kind} is not valid` };
     recipients[kind] = value;
   }
-  if (Object.keys(recipients).length === 0) return { error: "fee.recipients needs an evm, near or thorchain recipient" };
+  if (Object.keys(recipients).length === 0) return { error: "fee.recipients needs an evm, near, thorchain or solana recipient" };
   return { fee: { bps: fee.bps, recipients } };
 }
 
@@ -181,6 +184,7 @@ function publicAsset(asset: Asset) {
     venues: [
       ...(asset.uniswap ? [UNISWAP_VENUE] : []),
       ...(asset.uniswap && PANCAKESWAP_CHAINS.includes(asset.uniswap.chainId) ? ["pancakeswap"] : []),
+      ...(solanaMint(asset) ? ["jupiter"] : []),
       ...(asset.swapkit ? [SWAPKIT_VENUE] : []),
     ],
   };
@@ -497,6 +501,7 @@ export function createApp(deps: AppDeps): Hono {
     ...(leg ? { leg: leg.index + 1, legCount: leg.count } : {}),
     transactions: prepared.transactions,
     ...(prepared.deposit ? { deposit: prepared.deposit } : {}),
+    ...(prepared.solana ? { solana: prepared.solana } : {}),
   });
 
   /** A venue's fresh route for a leg: the same provider if it still answers, else the venue's best. */

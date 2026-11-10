@@ -141,6 +141,11 @@ describe("GET /v1/assets", () => {
     );
   });
 
+  it("names Jupiter for tokens on Solana", async () => {
+    const { assets } = await ((await app([]).request("/v1/assets")).json() as Promise<any>);
+    expect(assets.find((asset: { id: string }) => asset.id === "sol:sol").venues).toEqual(["jupiter", "swapkit"]);
+  });
+
   it("names PancakeSwap for tokens on BNB Chain", async () => {
     registerAssets(nativeAssets());
     try {
@@ -517,6 +522,18 @@ describe("POST /v1/swap when a price is set", () => {
     const response = await postSwap(target, quoteId);
     expect(response.status).toBe(502);
     expect(settle).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /v1/swap on Solana", () => {
+  it("returns the unsigned Solana transaction for the wallet to sign and send", async () => {
+    const venue = fakeVenue("jupiter", [route("jupiter", "100")]);
+    const solana = { transaction: "AQAB-unsigned", lastValidBlockHeight: 445860101 };
+    venue.prepare.mockResolvedValue({ transactions: [], solana });
+    const target = app([venue]);
+    const quoted = (await (await postQuote(target)).json()) as any;
+    const response = await target.request("/v1/swap", { method: "POST", body: JSON.stringify({ quoteId: quoted.routes[0].quoteId, swapToken: quoted.swapToken }) });
+    expect(await response.json()).toMatchObject({ venue: "jupiter", transactions: [], solana });
   });
 });
 
@@ -1079,7 +1096,7 @@ describe("the caller's fee", () => {
 
   it("goes to the venues as the caller set it", async () => {
     const venue = fakeVenue("uniswap", [route("uniswap", "100")]);
-    const fee = { bps: 100, recipients: { evm: FEE_WALLET, near: "coindrop.near", thorchain: "cd" } };
+    const fee = { bps: 100, recipients: { evm: FEE_WALLET, near: "coindrop.near", thorchain: "cd", solana: "GZRiD2TR1oiSXXFDsGhLR5fZWbfHqY9KyfHkiChUuVBR" } };
     expect((await postQuote(app([venue]), { ...quoteBody, fee })).status).toBe(200);
     expect(asked(venue).fee).toEqual(fee);
   });
@@ -1099,6 +1116,7 @@ describe("the caller's fee", () => {
     ["a bad EVM wallet", { bps: 100, recipients: { evm: "0x123" } }],
     ["a bad NEAR account", { bps: 100, recipients: { near: "Not A Name!" } }],
     ["a bad THORName", { bps: 100, recipients: { thorchain: "far-too-long-to-be-a-thorname-at-all" } }],
+    ["a bad Solana wallet", { bps: 100, recipients: { solana: "0xNotBase58" } }],
   ])("is refused with %s, before payment or any venue", async (_case, fee) => {
     const venue = fakeVenue("uniswap", [route("uniswap", "100")]);
     const response = await postQuote(app([venue]), { ...quoteBody, fee });
