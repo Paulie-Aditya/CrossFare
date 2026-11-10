@@ -456,8 +456,6 @@ Uniswap response: unsigned transactions for the caller to sign, in order.
 
 SwapKit response: the same `transactions` shape for EVM sources, or a deposit address and memo when the source is a chain like Bitcoin.
 
-Jupiter response: no EVM `transactions`, and `"solana": { "transaction": "<base64 unsigned v0 transaction>", "lastValidBlockHeight": 445860101 }` for the wallet to sign and send before that block height (FR-58).
-
 ```json
 {
   "swapId": "s_42d1",
@@ -466,6 +464,8 @@ Jupiter response: no EVM `transactions`, and `"solana": { "transaction": "<base6
   "deposit": { "asset": "btc:btc", "address": "bc1q…", "memo": "=:ETH.ETH:0xAgent…", "amount": "0.001", "expiresAt": "2026-11-07T10:10:00Z" }
 }
 ```
+
+Jupiter response: no EVM `transactions`, and `"solana": { "transaction": "<base64 unsigned v0 transaction>", "lastValidBlockHeight": 445860101 }` for the wallet to sign and send before that block height (FR-58).
 
 **Two-leg routes (FR-14).** `POST /v1/swap` on a two-leg quote re-quotes and prepares the first leg only, and its response adds `"leg": 1, "legCount": 2`. A price move on the first leg answers 409 with a fresh two-leg route, as for any quote.
 
