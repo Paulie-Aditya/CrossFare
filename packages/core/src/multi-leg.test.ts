@@ -83,6 +83,15 @@ describe("hubAssets", () => {
   it("skips a native coin it can't tell apart from the chain's other coins", () => {
     expect(hubAssets("thor")).toEqual([]);
   });
+
+  it("counts a native coin listed twice under one ID once", () => {
+    registerAssets([PEPE, USDT, BNB, BSC_USDC, FAKE_USDC, THOR_RUNE, THOR_TCY, { ...BNB, swapkit: undefined }]);
+    try {
+      expect(hubAssets("bsc")[0]).toBe("bsc:bnb");
+    } finally {
+      registerAssets([PEPE, USDT, BNB, BSC_USDC, FAKE_USDC, THOR_RUNE, THOR_TCY]);
+    }
+  });
 });
 
 describe("intermediates", () => {

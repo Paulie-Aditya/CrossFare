@@ -35,7 +35,8 @@ const contractOf = (asset: Asset) => (asset.uniswap?.address ?? asset.swapkit?.s
 /** The chain's native coin, then its USDC and USDT. A chain with several native coins gets none. */
 export function hubAssets(chain: string): AssetId[] {
   const onChain = listAssets().filter((asset) => asset.chain === chain);
-  const natives = onChain.filter(isNative);
+  // A list can name one coin twice; it is still one coin.
+  const natives = [...new Map(onChain.filter(isNative).map((asset) => [asset.id, asset])).values()];
   const stables = (STABLE_HUBS[chain] ?? []).flatMap((contract) => onChain.find((asset) => !isNative(asset) && contractOf(asset) === contract) ?? []);
   return [...(natives.length === 1 ? natives : []), ...stables].map((asset) => asset.id);
 }
