@@ -23,6 +23,7 @@ import {
   createSwapKitVenue,
   createPancakeSwapVenue,
   createJupiterVenue,
+  withQuoteTimeout,
   PANCAKE_PERMIT2,
   PANCAKESWAP_CHAINS,
   createThorchainVenue,
@@ -164,6 +165,9 @@ addUnlistedAssets(store.listUnlistedAssets());
 
 const arkiv = connectArkiv({ privateKey: config.arkivPrivateKey, accessKey: config.arkivAccessKey });
 
+/** Past this a venue's quote is dropped, so a slow one can't hold up the others' routes. */
+const QUOTE_TIMEOUT_MS = 15_000;
+
 const app = createApp({
   venues: [
     createUniswapVenue({
@@ -188,7 +192,7 @@ const app = createApp({
         })]
       : []),
     createSwapKitVenue({ apiKey: config.swapkitApiKey }),
-  ],
+  ].map((venue) => withQuoteTimeout(venue, QUOTE_TIMEOUT_MS)),
   store,
   tokens: createTokenLookup({ readToken, store }),
   gateway: await createX402Gateway({
