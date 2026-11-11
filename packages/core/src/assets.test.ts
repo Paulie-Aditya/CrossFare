@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import {
+import { assetContract,
   addUnlistedAssets,
   contractRef,
   displaySymbol,
@@ -175,5 +175,21 @@ describe("tokens by contract", () => {
     addUnlistedAssets([unlisted]);
     registerAssets([{ ...unlisted, id: `base:real-${PASTED}`, symbol: "REAL", unlisted: undefined } as never]);
     expect(resolveAssetId(`base:${PASTED}`)).toBe(`base:real-${PASTED}`);
+  });
+});
+
+describe("assetContract", () => {
+  it("is the token's address on an EVM chain, as checksummed", () => {
+    expect(assetContract(getAsset("eth:usdc"))).toBe("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
+  });
+
+  it("is a Solana token's mint, case intact, from its SwapKit identifier", () => {
+    const usdc = { id: "sol:usdc-epjf", chain: "sol", symbol: "USDC", decimals: 6, swapkit: "SOL.USDC-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", swapkitChain: "solana" };
+    expect(assetContract(usdc)).toBe("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+  });
+
+  it("is absent for a native coin", () => {
+    expect(assetContract(getAsset("eth:eth"))).toBeUndefined();
+    expect(assetContract(getAsset("btc:btc"))).toBeUndefined();
   });
 });

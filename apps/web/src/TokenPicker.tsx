@@ -118,7 +118,7 @@ export function TokenButton(props: {
           ) : (
             <ul className="token-list">
               {shown.map((option) => {
-                const contract = contractOf(option.id);
+                const contract = option.contract ?? contractOf(option.id);
                 return (
                   <li key={option.id}>
                     <button

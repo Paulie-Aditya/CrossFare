@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { addAssets, chainNameOf, contractOf, contractQuery, displaySymbol, filterAssets, isEvmAsset, isUnverified, logoOf, pickerMessage, setBook, symbolOf, type AssetOption } from "./asset-book.ts";
+import { addAssets, chainNameOf, contractOf, contractQuery, solanaMintQuery, displaySymbol, filterAssets, isEvmAsset, isUnverified, logoOf, pickerMessage, setBook, symbolOf, type AssetOption } from "./asset-book.ts";
 
 const asset = (id: string, symbol: string, name: string, chain = id.split(":")[0]!): AssetOption => ({ id, chain, symbol, name, decimals: 18, evm: chain !== "btc", venues: [] });
 const assets = [
@@ -88,5 +88,36 @@ describe("contractOf", () => {
   it("reads the contract even when the ticker has a hyphen", () => {
     expect(contractOf("base:usd-x-0xb80194e3868511b8f43e1d5d6e255cd9e7c3e7dd")).toBe("0xb80194e3868511b8f43e1d5d6e255cd9e7c3e7dd");
     expect(contractOf("eth:eth")).toBe("");
+  });
+});
+
+describe("search by contract address", () => {
+  const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+  const listed: AssetOption[] = [
+    { ...asset("eth:usdc", "usdc", "USD Coin"), contract: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" },
+    { ...asset("sol:usdc-epjfwdd5aufqssqem2qn1xzybapc8g4weggkzwytdt1v", "USDC", "USD Coin", "sol"), evm: false, contract: USDC_MINT },
+    asset("eth:eth", "eth", "Ether"),
+  ];
+  const ids = (found: { shown: AssetOption[] }) => found.shown.map((option) => option.id);
+
+  it("finds a token whose ID doesn't carry its contract, in any letter case", () => {
+    expect(ids(filterAssets(listed, "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", null))).toEqual(["eth:usdc"]);
+    expect(ids(filterAssets(listed, " 0xA0B86991 ", null))).toEqual(["eth:usdc"]);
+  });
+
+  it("finds a Solana token by its mint", () => {
+    expect(ids(filterAssets(listed, USDC_MINT, null))).toEqual(["sol:usdc-epjfwdd5aufqssqem2qn1xzybapc8g4weggkzwytdt1v"]);
+  });
+
+  it("puts a whole-address match first", () => {
+    const lookalike = { ...asset("eth:a0b8-0x1", "A0B86991C6218B36C1D19D4A2E9EB0CE3606EB48X", "Lookalike"), contract: "0x1" };
+    expect(ids(filterAssets([lookalike, ...listed], "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", null))[0]).toBe("eth:usdc");
+  });
+
+  it("says plainly when a pasted Solana mint isn't on the lists", () => {
+    expect(solanaMintQuery(` ${USDC_MINT} `)).toBe(USDC_MINT);
+    expect(solanaMintQuery("usdc")).toBeNull();
+    expect(solanaMintQuery("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")).toBeNull();
+    expect(pickerMessage("ready", USDC_MINT)).toBe("No Solana token on Crossfare's lists has that mint address.");
   });
 });

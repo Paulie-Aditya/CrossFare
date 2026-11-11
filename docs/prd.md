@@ -375,7 +375,7 @@ Eight endpoints; only quoting is paid for now, and prices are placeholders settl
 | Endpoint | Price | Purpose |
 | --- | --- | --- |
 | `GET /.well-known/x402` | Free | Discovery: endpoints, prices, payment network and asset, `payTo` account |
-| `GET /v1/assets` | Free | Every token SwapKit lists, with logos and chains, refreshed daily |
+| `GET /v1/assets` | Free | Every token SwapKit lists, with logos, chains and each token's `contract` (EVM address or Solana mint), refreshed daily |
 | `POST /v1/quote` | 0.01 USDC | Routes from every venue that supports the pair |
 | `POST /v1/swap` | Free for now | Execute one quote |
 | `GET /v1/swaps/{id}` | Free | Swap status |

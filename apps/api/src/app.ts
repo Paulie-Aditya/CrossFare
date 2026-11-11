@@ -32,6 +32,7 @@ import {
   UNISWAP_CHAINS,
   PANCAKESWAP_CHAINS,
   solanaMint,
+  assetContract,
   type Asset,
 } from "@crossfare/core";
 import type { TokenLookup } from "./token-lookup.ts";
@@ -180,6 +181,7 @@ function publicAsset(asset: Asset, running: ReadonlySet<string> = new Set()) {
     symbol: asset.symbol,
     name: asset.name ?? displaySymbol(asset.symbol),
     decimals: asset.decimals,
+    ...(assetContract(asset) ? { contract: assetContract(asset) } : {}),
     evm: asset.evmChainId !== undefined,
     ...(asset.logo ? { logo: asset.logo } : {}),
     venues: [

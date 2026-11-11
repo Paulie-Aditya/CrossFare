@@ -9,6 +9,8 @@ export interface AssetOption {
   venues: string[];
   /** False for a token found by contract that's on no token list. */
   verified?: boolean;
+  /** Its EVM address or Solana mint. Absent for a native coin. */
+  contract?: string;
 }
 
 export interface ChainOption {
@@ -60,6 +62,12 @@ export function contractQuery(query: string): string | null {
   return /^0x[0-9a-fA-F]{40}$/.test(trimmed) ? trimmed : null;
 }
 
+/** A whole Solana mint address. Tokens off Crossfare's lists can't be looked up there yet. */
+export function solanaMintQuery(query: string): string | null {
+  const trimmed = query.trim();
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed) ? trimmed : null;
+}
+
 /** A long list draws slowly, and nobody scrolls thousands of tokens: they search. */
 const SHOWN_AT_ONCE = 80;
 
@@ -69,10 +77,13 @@ export function filterAssets(list: readonly AssetOption[], query: string, chain:
   if (!words) return { shown: inChain.slice(0, limit), total: inChain.length };
   const score = (asset: AssetOption) => {
     const symbol = asset.symbol.toLowerCase();
+    const contract = asset.contract?.toLowerCase();
+    // A pasted address names one token, so it goes ahead of anything that merely looks like it.
+    if (contract && contract === words) return -1;
     if (symbol === words) return 0;
     if (symbol.startsWith(words)) return 1;
     if (asset.name.toLowerCase().includes(words)) return 2;
-    return asset.id.includes(words) ? 3 : 4;
+    return asset.id.includes(words) || (!!contract && words.length >= 4 && contract.includes(words)) ? 3 : 4;
   };
   const found = inChain
     .map((asset, index) => ({ asset, index, rank: score(asset) }))
@@ -85,9 +96,10 @@ export function filterAssets(list: readonly AssetOption[], query: string, chain:
 export type CatalogStatus = "loading" | "ready" | "failed";
 
 /** An empty picker can mean the list never arrived, which a person can't fix by searching differently. */
-export function pickerMessage(status: CatalogStatus, _query: string): string {
+export function pickerMessage(status: CatalogStatus, query: string): string {
   if (status === "loading") return "Loading tokens.";
   if (status === "failed") return "Tokens can't load because Crossfare's API isn't answering. This retries by itself.";
+  if (solanaMintQuery(query)) return "No Solana token on Crossfare's lists has that mint address.";
   return "No token matches that. Check the spelling, or paste its contract address.";
 }
 

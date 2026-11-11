@@ -149,6 +149,16 @@ export function contractRef(id: string): { chainId: number; address: string } | 
   return evm && address && EVM_CONTRACT.test(address) && id.split(":").length === 2 ? { chainId: evm.chainId, address } : null;
 }
 
+/**
+ * A token's contract: its address on an EVM chain, or the rest of its SwapKit identifier
+ * elsewhere, such as a Solana mint, with its case intact. Undefined for a native coin.
+ */
+export function assetContract(asset: Asset): string | undefined {
+  if (asset.uniswap) return asset.uniswap.address.toLowerCase() === NATIVE_TOKEN ? undefined : asset.uniswap.address;
+  const dash = asset.swapkit?.indexOf("-") ?? -1;
+  return dash >= 0 ? asset.swapkit!.slice(dash + 1) : undefined;
+}
+
 export const findAssetByContract = (chainId: number, address: string): Asset | undefined => byContract.get(contractKey(chainId, address));
 
 /** The ID of the token a `chain:0x…` reference names, if one is known. Any other ID comes back as given. */

@@ -141,6 +141,14 @@ describe("GET /v1/assets", () => {
     );
   });
 
+  it("gives each token's contract, so a picker can find it by address", async () => {
+    const { assets } = await ((await app([]).request("/v1/assets")).json() as Promise<any>);
+    const byId = (id: string) => assets.find((asset: { id: string }) => asset.id === id);
+    expect(byId("eth:usdc").contract).toBe("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
+    expect(byId("eth:eth")).not.toHaveProperty("contract");
+    expect(byId("btc:btc")).not.toHaveProperty("contract");
+  });
+
   it("names Jupiter for tokens on Solana, only when it's switched on", async () => {
     const venuesOf = async (venues: Venue[]) =>
       ((await (await app(venues).request("/v1/assets")).json()) as any).assets.find((asset: { id: string }) => asset.id === "sol:sol").venues;
