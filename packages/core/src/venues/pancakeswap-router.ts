@@ -57,7 +57,7 @@ export function createPancakeRouter(options: PancakeRouterOptions): PancakeRoute
 
       const trade = await SmartRouter.getBestTrade(CurrencyAmount.fromRawAmount(currencyIn, input.amountIn), currencyOut, TradeType.EXACT_INPUT, {
         gasPriceWei: () => client.getGasPrice(),
-        maxHops: 3,
+        maxHops: 2,
         maxSplits: 2,
         poolProvider: SmartRouter.createStaticPoolProvider(pools as never),
         quoteProvider: SmartRouter.createQuoteProvider({ onChainProvider }),
